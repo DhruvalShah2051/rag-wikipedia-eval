@@ -1,0 +1,57 @@
+"""
+Shared configuration for the RAG project.
+Loads secrets/connection info from .env and defines constants used
+across the fetch, embed, retrieve, and evaluate scripts.
+"""
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# --- API keys ---
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+# --- Postgres connection ---
+DB_CONFIG = {
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": os.getenv("DB_PORT", "5432"),
+    "dbname": os.getenv("DB_NAME", "rag_project"),
+    "user": os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD", ""),
+}
+
+# --- Embedding model ---
+# all-MiniLM-L6-v2 is small, fast, and produces 384-dimensional vectors.
+# Good default for a first RAG build; upgrade later if needed.
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+EMBEDDING_DIM = 384
+
+# --- Chunking ---
+CHUNK_SIZE_WORDS = 250
+CHUNK_OVERLAP_WORDS = 50
+
+# --- Retrieval ---
+TOP_K = 4  # number of chunks to retrieve per query
+
+# --- Generation ---
+GROQ_MODEL = "llama-3.1-8b-instant"  # fast, free-tier friendly Groq model
+
+# --- Wikipedia topic list (Machine Learning / AI concepts) ---
+WIKIPEDIA_ARTICLES = [
+    "Machine learning",
+    "Deep learning",
+    "Neural network",
+    "Backpropagation",
+    "Convolutional neural network",
+    "Recurrent neural network",
+    "Transformer (deep learning architecture)",
+    "Attention (machine learning)",
+    "Gradient descent",
+    "Overfitting",
+    "Supervised learning",
+    "Unsupervised learning",
+    "Reinforcement learning",
+    "Natural language processing",
+    "Large language model",
+]

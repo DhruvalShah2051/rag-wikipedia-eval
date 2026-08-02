@@ -1,0 +1,14 @@
+# Secrets - never commit this
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Fetched data (regenerable via 1_fetch_wikipedia.py)
+data/
+
+# OS files
+.DS_Store
+Thumbs.db
