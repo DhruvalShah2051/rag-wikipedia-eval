@@ -11,6 +11,27 @@ This project demonstrates:
 
 ---
 
+## Results
+
+Final evaluation across a 10-question test set:
+
+| Metric | Score |
+|---|---|
+| Retrieval accuracy | 9/10 (90%) |
+| Answer accuracy (LLM-graded) | 10/10 (100%) |
+
+**How these numbers were reached (not just reported):**
+
+1. Initial evaluation used keyword-substring matching for answer scoring - fast, but produced false negatives (e.g. penalizing "Supervised learning." for not literally containing the word "label").
+2. Switched to an LLM-as-judge grading approach (Groq grades each answer against a short reference answer). Answer accuracy stayed flat at 70%, but manual inspection revealed the judge was **inconsistent**: two structurally identical bare-category answers were graded differently.
+3. Rewrote the grading rubric with explicit, ordered rules (e.g. "a bare category name with no supporting mechanism must be marked INCORRECT"). This fixed the inconsistency, but dropped measured accuracy to 50%, revealing that the *generation* prompt, not the evaluation harness, was the real problem: the model was defaulting to terse, unexplained answers.
+4. Updated the generation prompt to require 1-2 sentence answers that explain the underlying mechanism, not just name a category. Re-ran evaluation: **answer accuracy rose to 100%**.
+5. One retrieval miss remains (a query about "unlabeled data" didn't retrieve the correct source article), but the model still answered correctly from background knowledge, an interesting case study in where RAG helps vs. where it's redundant with a model's pretrained knowledge.
+
+This progression (build → measure → find a harness bug → fix rubric → find a real generation bug → fix prompt → re-measure) is the actual point of the project: the evaluation harness isn't just a pass/fail gate, it's a debugging tool.
+
+---
+
 ## Prerequisites
 
 - Python 3.9+
@@ -126,7 +147,7 @@ python 5_evaluate.py
 
 ## Resume-ready results
 
-After running `5_evaluate.py`, you'll have real numbers (retrieval accuracy %,
-answer accuracy %) and a saved `evaluation_results.json` with full detail on
-every test case, exactly what you need to write a legitimate, metric-backed
-project bullet instead of a vague "I built a RAG system."
+See the **Results** section at the top for the final metrics and the
+debugging narrative behind them. Full per-question detail (including LLM
+judge reasoning for every case) is saved in `evaluation_results.json` after
+running `5_evaluate.py`.
