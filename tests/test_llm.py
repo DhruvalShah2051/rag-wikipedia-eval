@@ -84,6 +84,62 @@ def test_authentication_error_is_not_retried():
     assert len(client.calls) == 1
 
 
+def daily_limit_error():
+    """Groq's actual daily-cap message, which the first full sweep died on."""
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    response = httpx.Response(429, request=request)
+    return RateLimitError(
+        "Rate limit reached for model `openai/gpt-oss-20b` on tokens per day (TPD): "
+        "Limit 200000, Used 198428, Requested 5651. Please try again in 29m22.128s.",
+        response=response,
+        body=None,
+    )
+
+
+def test_daily_quota_fails_fast_instead_of_retrying():
+    """
+    A per-minute limit clears in seconds; a daily cap does not clear for hours.
+    Backing off five times over thirty seconds against a daily cap turns one
+    clear failure into five slow ones and still fails.
+    """
+    client = FakeGroqClient("hello", errors=[daily_limit_error()])
+
+    with pytest.raises(llm.DailyQuotaExceeded):
+        llm.chat_completion(client, "m", "p", 0.0)
+
+    assert len(client.calls) == 1, "daily quota must not be retried"
+
+
+def test_daily_quota_error_keeps_the_providers_reset_hint():
+    """The caller needs to know when it is worth trying again."""
+    client = FakeGroqClient("hello", errors=[daily_limit_error()])
+
+    with pytest.raises(llm.DailyQuotaExceeded, match="29m22"):
+        llm.chat_completion(client, "m", "p", 0.0)
+
+
+def test_per_minute_limit_is_still_retried():
+    """The distinction must not swallow ordinary rate limits."""
+    client = FakeGroqClient("hello", errors=[rate_limit_error()])
+
+    llm.chat_completion(client, "m", "p", 0.0)
+
+    assert len(client.calls) == 2
+
+
+@pytest.mark.parametrize(
+    "message, expected",
+    [
+        ("limit reached on tokens per day (TPD): Limit 200000", True),
+        ("Rate limit reached on requests per day (RPD)", True),
+        ("Rate limit reached on tokens per minute (TPM)", False),
+        ("Rate limit reached on requests per minute (RPM)", False),
+    ],
+)
+def test_daily_limits_are_told_apart_from_per_minute_ones(message, expected):
+    assert llm.is_daily_limit(message) is expected
+
+
 def test_gives_up_after_max_attempts():
     client = FakeGroqClient("hello", errors=[rate_limit_error() for _ in range(llm.MAX_ATTEMPTS)])
 

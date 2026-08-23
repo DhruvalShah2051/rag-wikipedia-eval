@@ -12,6 +12,16 @@ import time
 
 from groq import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 
+
+class DailyQuotaExceeded(RuntimeError):
+    """
+    The provider's daily token or request cap is exhausted.
+
+    Distinct from a transient rate limit: no amount of waiting inside this
+    process will clear it, so callers that can checkpoint their progress should
+    stop cleanly rather than retry.
+    """
+
 # Errors worth retrying: rate limiting and transient server or network trouble.
 # Everything else - a bad key, an unknown model, a malformed request - is a real
 # failure that retrying only delays.
@@ -19,6 +29,19 @@ RETRYABLE = (RateLimitError, APIConnectionError, APITimeoutError, InternalServer
 
 MAX_ATTEMPTS = 5
 BASE_DELAY_SECONDS = 2.0
+
+# Groq enforces two kinds of rate limit and they need opposite responses. A
+# per-minute limit clears in seconds and is worth backing off against. A daily
+# token cap does not clear for hours, so retrying it five times over thirty
+# seconds just turns one clear failure into five slow ones - which is exactly
+# what happened to the first full sweep.
+DAILY_LIMIT_MARKERS = ("tokens per day", "TPD", "requests per day", "RPD")
+
+
+def is_daily_limit(error):
+    """True when a rate limit is a daily quota rather than a per-minute one."""
+    message = str(error)
+    return any(marker in message for marker in DAILY_LIMIT_MARKERS)
 
 
 def chat_completion(client, model, prompt, temperature):
@@ -42,6 +65,14 @@ def chat_completion(client, model, prompt, temperature):
             return response, time.perf_counter() - started
         except RETRYABLE as exc:
             last_error = exc
+
+            # A daily quota will not clear within any sensible backoff. Surface
+            # it immediately with the provider's own reset hint intact, so the
+            # caller sees what to do rather than a generic "failed after 5
+            # attempts" thirty seconds later.
+            if isinstance(exc, RateLimitError) and is_daily_limit(exc):
+                raise DailyQuotaExceeded(str(exc)) from exc
+
             if attempt == MAX_ATTEMPTS - 1:
                 break
             # Exponential backoff with jitter, so a sweep's parallel-ish retries

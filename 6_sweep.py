@@ -18,11 +18,12 @@ Run:
 
 import mlflow
 
-from config import CHUNK_OVERLAP_WORDS, CHUNK_SIZE_WORDS
+from config import CHUNK_OVERLAP_WORDS, CHUNK_SIZE_WORDS, MLFLOW_EXPERIMENT_NAME
 from console import enable_utf8_output
 from evaluation import run_evaluation
-from experiment import log_evaluation_run
+from experiment import configure_tracking, log_evaluation_run
 from ingest import ingest_corpus
+from llm import DailyQuotaExceeded
 from rag_model import log_and_register
 from schema import ivfflat_lists
 
@@ -35,12 +36,43 @@ TOP_KS = (2, 4, 8)
 OVERLAP_RATIO = CHUNK_OVERLAP_WORDS / CHUNK_SIZE_WORDS
 
 
-def sweep():
+def completed_runs():
+    """
+    Configurations already logged, as {(chunk_size, top_k)}.
+
+    A sweep is roughly 120 model calls and can be stopped partway by a provider
+    quota - which is how the first full run ended. Re-running should cost only
+    what is missing, not repeat work that is already recorded.
+    """
+    configure_tracking()
+    client = mlflow.MlflowClient()
+    experiment = client.get_experiment_by_name(MLFLOW_EXPERIMENT_NAME)
+    if experiment is None:
+        return set()
+
+    done = set()
+    for run in client.search_runs([experiment.experiment_id], max_results=1000):
+        params = run.data.params
+        if run.info.status == "FINISHED" and "chunk_size" in params and "top_k" in params:
+            done.add((int(params["chunk_size"]), int(params["top_k"])))
+    return done
+
+
+def sweep(resume=True):
     rows = []
+    done = completed_runs() if resume else set()
+
+    if done:
+        print(f"Resuming: {len(done)} configuration(s) already logged, skipping them.")
 
     try:
         for chunk_size in CHUNK_SIZES:
             overlap = int(chunk_size * OVERLAP_RATIO)
+            pending = [k for k in TOP_KS if (chunk_size, k) not in done]
+
+            if not pending:
+                print(f"\nchunk_size={chunk_size}: all configurations already logged.")
+                continue
 
             print(f"\n{'=' * 70}")
             print(f"Ingesting corpus at chunk_size={chunk_size}, overlap={overlap}")
@@ -49,7 +81,7 @@ def sweep():
             lists = ivfflat_lists(chunk_count)
             print(f"{chunk_count} chunks, ivfflat lists={lists}")
 
-            for top_k in TOP_KS:
+            for top_k in pending:
                 print(f"\n--- chunk_size={chunk_size}, top_k={top_k} ---")
                 result = run_evaluation(top_k=top_k, verbose=False)
 
@@ -83,6 +115,18 @@ def sweep():
                       f"answer {result.answer_accuracy:.0%} | "
                       f"{result.mean_latency_s:.2f}s | "
                       f"{result.mean_tokens_per_query:.0f} tokens")
+
+    except DailyQuotaExceeded as exc:
+        # Not a failure of the sweep - the provider's daily cap is simply spent.
+        # Everything measured so far is already logged, and the finally block
+        # below still restores the baseline. Re-running after the quota resets
+        # picks up only what is missing.
+        print(f"\n{'!' * 70}")
+        print("Stopped: provider daily quota exhausted.")
+        print(f"{exc}")
+        print(f"\n{len(rows)} configuration(s) completed this run and are logged.")
+        print("Re-run `python 6_sweep.py` after the quota resets to finish the rest.")
+        print("!" * 70)
 
     finally:
         # Always restore the documented baseline, including on Ctrl-C or a

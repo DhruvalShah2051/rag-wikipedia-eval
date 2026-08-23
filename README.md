@@ -241,6 +241,42 @@ is what let a wrong number stand. The per-question `evaluation_results.json` is
 attached to each run as an artifact, so a regression can be diagnosed question
 by question rather than only seen as a lower aggregate.
 
+### Sweep results
+
+`6_sweep.py` evaluates a grid of chunk sizes and retrieval depths. Measured:
+
+| chunk_size | top_k | chunks | retrieval | answer | tokens/query |
+|---:|---:|---:|---:|---:|---:|
+| 250 | 2 | 414 | 100% | 100% | 935 |
+| 250 | 4 | 414 | 100% | 100% | 1622 |
+| 250 | 8 | 414 | 100% | 100% | 2955 |
+| 500 | 2 | 209 | 100% | 100% | 1607 |
+| 500 | 4 | 209 | 100% | 100% | 2930 |
+| 500 | 8 | 209 | *not run* | | |
+
+**What this says.** Accuracy is saturated: every configuration scores 100% on
+both metrics, so on this benchmark neither chunk size nor retrieval depth
+distinguishes them. Cost is not saturated — tokens per query scale roughly
+linearly with retrieved context, and `chunk_size=250, top_k=2` answers every
+question correctly on **935 tokens**, less than a third of what `top_k=8` spends.
+
+That makes the default `TOP_K = 4` defensible but not optimal for this corpus:
+top-2 is measurably cheaper at identical accuracy. The honest caveat is that a
+10-question benchmark saturating at 100% cannot distinguish configurations, so
+this argues for a harder benchmark before treating it as a tuning result.
+
+**Latency is deliberately omitted from this table.** It is logged as a metric,
+but Groq queues requests server-side as an account approaches its quota, and the
+sweep ran into that: the first configuration averaged 0.35s per query while
+later ones averaged 9–20s at similar token counts. That measures how throttled
+the account was, not how the configuration performs, and presenting it as a
+property of the configuration would repeat exactly the mistake in step 7 above.
+
+The `500 / 8` cell is unrun: the sweep exhausted the Groq free tier's daily
+token cap (200,000 TPD) partway through. Re-running `6_sweep.py` after the quota
+resets completes only the missing cell — the sweep skips configurations already
+logged in MLflow.
+
 ### Model registry
 
 Each swept configuration is logged as an `mlflow.pyfunc` model and registered as
