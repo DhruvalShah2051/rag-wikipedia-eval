@@ -12,9 +12,26 @@ from sentence_transformers import SentenceTransformer
 from groq import Groq
 from config import DB_CONFIG, EMBEDDING_MODEL_NAME, TOP_K, GROQ_API_KEY, GROQ_MODEL
 
-# Load once at import time so repeated calls (e.g. during evaluation) are fast
-_embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
-_groq_client = Groq(api_key=GROQ_API_KEY)
+# Both are built on first use and then cached, so repeated calls (e.g. during
+# evaluation) stay fast without paying the cost at import time. Importing this
+# module must not download a 90MB model or require an API key - tests, tooling,
+# and CI all import it, and the Groq constructor raises when the key is absent.
+_embedding_model = None
+_groq_client = None
+
+
+def _get_embedding_model():
+    global _embedding_model
+    if _embedding_model is None:
+        _embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+    return _embedding_model
+
+
+def _get_groq_client():
+    global _groq_client
+    if _groq_client is None:
+        _groq_client = Groq(api_key=GROQ_API_KEY)
+    return _groq_client
 
 
 def retrieve_chunks(query, top_k=TOP_K):
@@ -22,7 +39,7 @@ def retrieve_chunks(query, top_k=TOP_K):
     Embed the query and find the top_k most similar chunks in Postgres
     using pgvector's cosine distance operator (<=>).
     """
-    query_embedding = _embedding_model.encode(query).tolist()
+    query_embedding = _get_embedding_model().encode(query).tolist()
 
     conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
@@ -83,7 +100,7 @@ def generate_answer(query, retrieved_chunks):
     """
     prompt = build_prompt(query, retrieved_chunks)
 
-    response = _groq_client.chat.completions.create(
+    response = _get_groq_client().chat.completions.create(
         model=GROQ_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,  # low temperature for factual, grounded answers

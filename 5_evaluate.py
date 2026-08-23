@@ -13,13 +13,15 @@ Runs a fixed set of test questions through the RAG pipeline and scores:
 This is what makes the project a real "harness": reproducible, automated
 scoring you can rerun after any pipeline change (different chunk size,
 different top_k, different model) to see if accuracy improved or regressed.
+
+This file owns the benchmark suite and the run loop. The rubric itself and the
+parsing of the judge's verdict live in grading.py, where they can be imported
+and tested.
 """
 
 import json
-from groq import Groq
-from rag_pipeline import answer_question, GROQ_API_KEY, GROQ_MODEL
-
-_judge_client = Groq(api_key=GROQ_API_KEY)
+from rag_pipeline import answer_question
+from grading import grade_answer_with_llm
 
 # Each test case has:
 #   - query: the question to ask
@@ -81,63 +83,11 @@ TEST_CASES = [
 ]
 
 
-def grade_answer_with_llm(query, reference_answer, model_answer):
-    """
-    Use Groq as an LLM judge to grade whether the model's answer correctly
-    addresses the question, compared against a short reference answer.
-
-    Returns a dict with 'correct' (bool) and 'reasoning' (str).
-    """
-    grading_prompt = f"""You are grading the correctness of an AI-generated answer. Apply these rules consistently and strictly.
-
-QUESTION: {query}
-
-REFERENCE ANSWER (the key facts a correct answer should convey):
-{reference_answer}
-
-MODEL'S ANSWER:
-{model_answer}
-
-GRADING RULES (apply these in order, and apply them the same way every time):
-1. The wording does not need to match the reference answer - judge based on factual correctness only.
-2. A bare category name or one-word/one-phrase answer with NO supporting mechanism, reasoning, or explanation
-   must be marked INCORRECT, even if that category name is technically the right answer. A correct answer
-   must explain the "how" or "why", not just name the "what".
-3. Minor omissions of secondary/tertiary detail are acceptable IF the core mechanism or reasoning is present
-   and correct.
-4. If the answer contradicts or omits the core mechanism described in the reference answer, mark it INCORRECT.
-5. Do not give partial credit - the verdict is binary. If in doubt between CORRECT and INCORRECT, choose
-   INCORRECT and explain the specific missing element.
-
-Respond in this exact format:
-VERDICT: [CORRECT or INCORRECT]
-REASONING: [one sentence explaining why, citing the specific rule applied]"""
-
-    response = _judge_client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[{"role": "user", "content": grading_prompt}],
-        temperature=0.0,  # deterministic grading
-    )
-
-    result_text = response.choices[0].message.content.strip()
-
-    # Parse the verdict line
-    correct = "VERDICT: CORRECT" in result_text.upper()
-
-    # Extract reasoning line for logging/debugging
-    reasoning = ""
-    for line in result_text.split("\n"):
-        if line.upper().startswith("REASONING:"):
-            reasoning = line.split(":", 1)[1].strip()
-            break
-
-    return {"correct": correct, "reasoning": reasoning, "raw_verdict": result_text}
-
-
 def evaluate():
     results = []
     retrieval_hits = 0
     answer_hits = 0
+    unparsed_verdicts = 0
 
     for case in TEST_CASES:
         result = answer_question(case["query"], verbose=False)
@@ -156,6 +106,8 @@ def evaluate():
             retrieval_hits += 1
         if answer_correct:
             answer_hits += 1
+        if not grading["parsed"]:
+            unparsed_verdicts += 1
 
         results.append({
             "query": case["query"],
@@ -173,6 +125,10 @@ def evaluate():
         print(f"[Retrieval: {status_r} | Answer: {status_a}] {case['query']}")
         if not answer_correct:
             print(f"    -> Judge reasoning: {grading['reasoning']}")
+        if not grading["parsed"]:
+            # Scored INCORRECT, but only because the judge's reply was unreadable.
+            # Surface it rather than letting it sink into the accuracy number.
+            print(f"    -> WARNING: no verdict found in judge reply: {grading['raw_verdict']!r}")
 
     total = len(TEST_CASES)
     retrieval_accuracy = retrieval_hits / total
@@ -181,6 +137,9 @@ def evaluate():
     print("\n" + "=" * 60)
     print(f"Retrieval accuracy: {retrieval_hits}/{total} ({retrieval_accuracy:.1%})")
     print(f"Answer accuracy (LLM-graded): {answer_hits}/{total} ({answer_accuracy:.1%})")
+    if unparsed_verdicts:
+        print(f"WARNING: {unparsed_verdicts} judge reply/replies had no readable verdict "
+              f"and were counted as INCORRECT.")
     print("=" * 60)
 
     with open("evaluation_results.json", "w", encoding="utf-8") as f:
