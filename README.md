@@ -199,14 +199,26 @@ the registry push uses the built-in `GITHUB_TOKEN`.
 
 ## Running the harness in a container
 
+The image is built by CI and published to GHCR on every push to `main`:
+
+```bash
+docker pull ghcr.io/dhruvalshah2051/rag-wikipedia-eval:latest
+```
+
+Or build it yourself:
+
 ```bash
 docker build -t rag-eval .
+```
 
+Either way, point it at a reachable Postgres:
+
+```bash
 docker run --rm \
   -e GROQ_API_KEY \
   -e DB_HOST=host.docker.internal \
   -e DB_PASSWORD=yourpassword \
-  rag-eval
+  ghcr.io/dhruvalshah2051/rag-wikipedia-eval:latest
 ```
 
 The default command runs the evaluation harness, so the container reproduces the

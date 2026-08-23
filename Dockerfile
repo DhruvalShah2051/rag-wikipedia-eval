@@ -6,6 +6,12 @@
 
 FROM python:3.13-slim
 
+# GitHub attaches a published package to a repository by reading
+# org.opencontainers.image.source off the image. Without it the package lands
+# under the account but never appears in the repository's Packages section.
+LABEL org.opencontainers.image.source="https://github.com/DhruvalShah2051/rag-wikipedia-eval" \
+      org.opencontainers.image.description="RAG knowledge base over ML/AI Wikipedia articles with an LLM-graded evaluation harness. Default command runs the benchmark."
+
 # Unbuffered so evaluation output streams out of the container as it runs
 # rather than appearing all at once when the process exits.
 ENV PYTHONUNBUFFERED=1 \
