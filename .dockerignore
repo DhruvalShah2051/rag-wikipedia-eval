@@ -1,0 +1,20 @@
+# Secrets - the container reads configuration from environment variables only.
+.env
+
+# Local environment and generated data, all regenerable.
+venv/
+data/
+__pycache__/
+*.pyc
+evaluation_results.json
+
+# Not needed at runtime; excluding them keeps the build context small and stops
+# unrelated edits from busting the layer cache.
+.git/
+.github/
+tests/
+*.md
+.gitattributes
+.gitignore
+pyproject.toml
+requirements-dev.txt
