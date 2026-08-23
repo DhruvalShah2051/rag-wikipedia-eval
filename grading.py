@@ -14,6 +14,14 @@ import re
 
 from groq import Groq
 from config import GROQ_API_KEY, JUDGE_MODEL
+from llm import chat_completion
+
+# Bumped whenever the rubric text below changes. Logged to MLflow as a run
+# parameter: two runs graded by different rubrics are not comparable, and
+# without a version recorded alongside the score there is no way to tell.
+# v3 is the strict ordered rubric described in the README's Results section -
+# the one every recorded number was produced under.
+JUDGE_PROMPT_VERSION = "v3-strict-rubric"
 
 # Constructed on first use rather than at import time, so this module can be
 # imported without a GROQ_API_KEY present (tests, CI, tooling).
@@ -115,16 +123,10 @@ def grade_answer_with_llm(query, reference_answer, model_answer, client=None):
     `client` is injectable so tests can grade against a stub without a network
     call or an API key.
     """
-    client = client or _get_judge_client()
-
-    response = client.chat.completions.create(
+    response, _latency_s = chat_completion(
+        client or _get_judge_client(),
         model=JUDGE_MODEL,
-        messages=[
-            {
-                "role": "user",
-                "content": build_grading_prompt(query, reference_answer, model_answer),
-            }
-        ],
+        prompt=build_grading_prompt(query, reference_answer, model_answer),
         temperature=0.0,  # deterministic grading
     )
 

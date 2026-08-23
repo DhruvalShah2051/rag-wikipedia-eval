@@ -7,10 +7,29 @@ This module is imported by both 4_query.py (interactive use) and
 lives in one place.
 """
 
+from dataclasses import dataclass
+
 import psycopg2
 from sentence_transformers import SentenceTransformer
 from groq import Groq
 from config import DB_CONFIG, EMBEDDING_MODEL_NAME, TOP_K, GROQ_API_KEY, GROQ_MODEL
+from llm import chat_completion
+
+
+@dataclass
+class Generation:
+    """
+    One generated answer and what it cost.
+
+    Groq reports token counts on every response, so none of this is estimated.
+    Phase 2 logs the token and latency fields to MLflow as run metrics.
+    """
+
+    answer: str
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    latency_s: float
 
 # Both are built on first use and then cached, so repeated calls (e.g. during
 # evaluation) stay fast without paying the cost at import time. Importing this
@@ -94,37 +113,54 @@ ANSWER:"""
     return prompt
 
 
-def generate_answer(query, retrieved_chunks):
+def generate_answer(query, retrieved_chunks, client=None):
     """
-    Send the assembled prompt to Groq and return the generated answer.
+    Send the assembled prompt to Groq and return a Generation.
+
+    `client` is injectable so tests can generate against a stub without a
+    network call or an API key.
     """
     prompt = build_prompt(query, retrieved_chunks)
 
-    response = _get_groq_client().chat.completions.create(
+    response, latency_s = chat_completion(
+        client or _get_groq_client(),
         model=GROQ_MODEL,
-        messages=[{"role": "user", "content": prompt}],
+        prompt=prompt,
         temperature=0.1,  # low temperature for factual, grounded answers
     )
 
-    return response.choices[0].message.content
+    usage = response.usage
+    return Generation(
+        answer=response.choices[0].message.content,
+        prompt_tokens=usage.prompt_tokens,
+        completion_tokens=usage.completion_tokens,
+        total_tokens=usage.total_tokens,
+        latency_s=latency_s,
+    )
 
 
-def answer_question(query, top_k=TOP_K, verbose=False):
+def answer_question(query, top_k=TOP_K, verbose=False, client=None):
     """
     Full end-to-end pipeline: retrieve -> build prompt -> generate.
-    Returns both the answer and the retrieved chunks (useful for evaluation).
+    Returns the answer, the retrieved chunks, and what the call cost.
     """
     retrieved = retrieve_chunks(query, top_k=top_k)
-    answer = generate_answer(query, retrieved)
+    generation = generate_answer(query, retrieved, client=client)
 
     if verbose:
         print(f"\nQuery: {query}")
         print("\nRetrieved chunks:")
         for c in retrieved:
             print(f"  - [{c['source_title']}] (distance={c['distance']:.4f}) {c['chunk_text'][:100]}...")
-        print(f"\nAnswer: {answer}")
+        print(f"\nAnswer: {generation.answer}")
+        print(f"({generation.total_tokens} tokens, {generation.latency_s:.2f}s)")
 
-    return {"query": query, "retrieved_chunks": retrieved, "answer": answer}
+    return {
+        "query": query,
+        "retrieved_chunks": retrieved,
+        "answer": generation.answer,
+        "generation": generation,
+    }
 
 
 if __name__ == "__main__":

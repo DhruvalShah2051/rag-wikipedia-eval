@@ -93,28 +93,48 @@ class _FakeVector:
 
 
 class FakeGroqResponse:
-    """Minimal shape of a Groq chat completion: .choices[0].message.content."""
+    """
+    Minimal shape of a Groq chat completion: .choices[0].message.content plus
+    the .usage block the pipeline reads token counts from.
+    """
 
-    def __init__(self, content):
+    def __init__(self, content, prompt_tokens=100, completion_tokens=25):
         message = type("Message", (), {"content": content})()
         choice = type("Choice", (), {"message": message})()
         self.choices = [choice]
+        self.usage = type(
+            "Usage",
+            (),
+            {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+            },
+        )()
 
 
 class FakeGroqClient:
     """
     Stands in for a Groq client. Returns a canned reply and records the request,
-    so grading can be tested without a network call or an API key.
+    so generation and grading can be tested without a network call or an API key.
+
+    `errors` is a list of exceptions to raise before the reply finally succeeds,
+    which is how the retry path is exercised.
     """
 
-    def __init__(self, reply):
+    def __init__(self, reply, prompt_tokens=100, completion_tokens=25, errors=None):
         self.reply = reply
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+        self.errors = list(errors or [])
         self.calls = []
         self.chat = type("Chat", (), {"completions": self})()
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
-        return FakeGroqResponse(self.reply)
+        if self.errors:
+            raise self.errors.pop(0)
+        return FakeGroqResponse(self.reply, self.prompt_tokens, self.completion_tokens)
 
 
 @pytest.fixture

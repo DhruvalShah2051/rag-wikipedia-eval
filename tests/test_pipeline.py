@@ -9,9 +9,9 @@ exercised against a real pgvector instance in test_retrieval_integration.py.
 import pytest
 
 import rag_pipeline
-from conftest import FakeConnection
-from config import TOP_K
-from rag_pipeline import build_prompt, retrieve_chunks
+from conftest import FakeConnection, FakeGroqClient
+from config import GROQ_MODEL, TOP_K
+from rag_pipeline import Generation, answer_question, build_prompt, generate_answer, retrieve_chunks
 
 
 SAMPLE_ROWS = [
@@ -155,3 +155,52 @@ def test_prompt_with_no_chunks_is_still_well_formed():
     assert "CONTEXT:" in prompt
     assert "QUESTION:" in prompt
     assert prompt.rstrip().endswith("ANSWER:")
+
+
+# --------------------------------------------------------------------------
+# generate_answer - token and latency capture
+# --------------------------------------------------------------------------
+
+
+def test_generation_carries_token_counts_from_the_response():
+    """
+    Token counts come from Groq's usage block, so they are reported rather than
+    estimated. Phase 2 logs them to MLflow as a per-run metric.
+    """
+    client = FakeGroqClient("an answer", prompt_tokens=340, completion_tokens=42)
+
+    generation = generate_answer("q", [], client=client)
+
+    assert generation.answer == "an answer"
+    assert generation.prompt_tokens == 340
+    assert generation.completion_tokens == 42
+    assert generation.total_tokens == 382
+
+
+def test_generation_records_latency():
+    client = FakeGroqClient("an answer")
+
+    generation = generate_answer("q", [], client=client)
+
+    assert generation.latency_s >= 0.0
+
+
+def test_generation_uses_the_configured_model_and_temperature():
+    client = FakeGroqClient("an answer")
+
+    generate_answer("q", [], client=client)
+
+    assert client.calls[0]["model"] == GROQ_MODEL
+    assert client.calls[0]["temperature"] == 0.1
+
+
+def test_answer_question_threads_generation_through(fake_db):
+    """The evaluation harness reads cost off result['generation']."""
+    client = FakeGroqClient("an answer", prompt_tokens=10, completion_tokens=5)
+
+    result = answer_question("q", client=client)
+
+    assert result["answer"] == "an answer"
+    assert isinstance(result["generation"], Generation)
+    assert result["generation"].total_tokens == 15
+    assert len(result["retrieved_chunks"]) == len(SAMPLE_ROWS)
