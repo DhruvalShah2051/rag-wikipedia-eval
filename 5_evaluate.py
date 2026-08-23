@@ -9,9 +9,11 @@ programmatically - by the Phase 2 sweep, and later by Phase 4's Airflow quality
 gate. This file is the command-line entry point.
 """
 
+from console import enable_utf8_output
 from evaluation import print_summary, run_evaluation
 
 if __name__ == "__main__":
+    enable_utf8_output()
     result = run_evaluation()
     print_summary(result)
     path = result.save()

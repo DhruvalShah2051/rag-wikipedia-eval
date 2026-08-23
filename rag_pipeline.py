@@ -12,7 +12,14 @@ from dataclasses import dataclass
 import psycopg2
 from sentence_transformers import SentenceTransformer
 from groq import Groq
-from config import DB_CONFIG, EMBEDDING_MODEL_NAME, TOP_K, GROQ_API_KEY, GROQ_MODEL
+from config import (
+    DB_CONFIG,
+    EMBEDDING_MODEL_NAME,
+    GROQ_API_KEY,
+    GROQ_MODEL,
+    IVFFLAT_PROBES,
+    TOP_K,
+)
 from llm import chat_completion
 
 
@@ -62,6 +69,12 @@ def retrieve_chunks(query, top_k=TOP_K):
 
     conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
+
+    # Every call opens a fresh connection, and ivfflat.probes resets to 1 on each
+    # one. Setting it explicitly is what makes retrieval reproducible: leaving it
+    # at the default over a badly sized index is what turned a genuine 10/10 into
+    # a recorded 90%. Logged to MLflow so each result is attributable.
+    cur.execute("SET ivfflat.probes = %s;", (IVFFLAT_PROBES,))
 
     cur.execute(
         """

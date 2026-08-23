@@ -14,7 +14,7 @@ dedicated `rag_test` schema so the real corpus is never touched.
 import pytest
 
 from rag_pipeline import retrieve_chunks
-from schema import IVFFLAT_LISTS, create_index, create_table
+from schema import create_index, create_table, ivfflat_lists, ivfflat_probes, rebuild_index
 from conftest import FIXTURE_DOCS, TEST_SCHEMA
 
 pytestmark = pytest.mark.integration
@@ -73,7 +73,7 @@ def test_schema_ddl_applies_against_a_real_server(test_schema):
     """
     cur = test_schema.cursor()
     create_table(cur)
-    create_index(cur)
+    lists = create_index(cur)
 
     cur.execute(
         "SELECT indexdef FROM pg_indexes WHERE schemaname = %s AND indexname = %s;",
@@ -86,4 +86,50 @@ def test_schema_ddl_applies_against_a_real_server(test_schema):
     indexdef = row[0]
     assert "ivfflat" in indexdef
     assert "vector_cosine_ops" in indexdef
-    assert f"lists='{IVFFLAT_LISTS}'" in indexdef.replace('"', "'")
+    assert f"lists='{lists}'" in indexdef.replace('"', "'")
+
+
+def test_rebuilding_the_index_after_a_reload_preserves_recall(seeded_db):
+    """
+    The regression that cost 10 points of retrieval accuracy.
+
+    ivfflat builds its partitions from the rows present when the index is
+    created. Re-ingesting truncates and reloads, so an index built beforehand
+    describes centroids for rows that no longer exist - and pgvector reports no
+    error, it just returns the wrong neighbours. Rebuilding must restore exact
+    agreement with unindexed search.
+    """
+    cur = seeded_db.cursor()
+
+    query = "How do plants turn sunlight into chemical energy?"
+    before = [r["source_title"] for r in retrieve_chunks(query, top_k=3)]
+
+    rebuild_index(cur)
+    seeded_db.commit()
+    cur.close()
+
+    after = [r["source_title"] for r in retrieve_chunks(query, top_k=3)]
+
+    assert after == before, "results changed once the index was in play"
+    assert after[0] == "Photosynthesis"
+
+
+def test_index_is_sized_from_the_corpus(seeded_db):
+    """
+    A fixed lists value is what caused the recall loss. The size must come from
+    the row count, so a nine-row fixture and a 400-chunk corpus each get an
+    index that actually suits them.
+    """
+    cur = seeded_db.cursor()
+    lists = rebuild_index(cur)
+    seeded_db.commit()
+
+    cur.execute("SELECT count(*) FROM document_chunks;")
+    rows = cur.fetchone()[0]
+    cur.close()
+
+    assert lists == ivfflat_lists(rows)
+    # A fixture this small must collapse to a single partition, which makes the
+    # scan exhaustive and the retrieval assertions above deterministic.
+    assert lists == 1
+    assert ivfflat_probes(lists) == 1

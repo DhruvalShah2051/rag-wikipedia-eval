@@ -5,10 +5,12 @@ Run this after chunks are embedded and stored (step 3) to ask
 questions against your document set from the command line.
 """
 
+from console import enable_utf8_output
 from rag_pipeline import answer_question
 
 
 def main():
+    enable_utf8_output()
     print("RAG Query Interface (ML/AI Wikipedia knowledge base)")
     print("Type a question, or 'quit' to exit.\n")
 

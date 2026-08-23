@@ -34,6 +34,17 @@ CHUNK_OVERLAP_WORDS = 50
 # --- Retrieval ---
 TOP_K = 4  # number of chunks to retrieve per query
 
+# ivfflat partitions to scan per query. The index is sized from the corpus at
+# ingestion time (see schema.ivfflat_lists), which at this corpus size yields a
+# single partition - so scanning one is exhaustive and exact.
+#
+# This is not a tuning knob to leave at its default and forget. A fixed
+# lists = 10 over ~414 chunks scanned a tenth of the corpus per query and
+# dropped the correct chunk on 2 of 10 benchmark questions, which had been
+# recorded as a 90% retrieval score. Raise this alongside lists if the corpus
+# grows past a few thousand chunks.
+IVFFLAT_PROBES = 1
+
 # --- Generation ---
 # Small and fast, so the benchmark measures retrieval quality rather than raw
 # model horsepower - a large model answers well from pretraining even when

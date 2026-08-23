@@ -19,6 +19,7 @@ from config import (
     DB_CONFIG,
     EMBEDDING_MODEL_NAME,
 )
+from schema import ivfflat_probes, rebuild_index
 
 RAW_DATA_DIR = "data/raw"
 
@@ -91,11 +92,20 @@ def ingest_corpus(chunk_size=CHUNK_SIZE_WORDS, overlap=CHUNK_OVERLAP_WORDS, verb
         if verbose:
             print(f"[OK] '{title}': {len(chunks)} chunks embedded and stored.")
 
+    # ivfflat builds its partitions from the rows present at creation time, and
+    # the TRUNCATE above invalidated whatever index existed. Rebuilding is not
+    # optional: a stale index does not error, it just quietly returns the wrong
+    # nearest neighbours. This was measured as a 10-point retrieval loss.
+    lists = rebuild_index(cur)
+    conn.commit()
+
     cur.close()
     conn.close()
 
     if verbose:
         print(f"\nDone. Stored {total_chunks} chunks from {len(txt_files)} articles.")
+        print(f"Rebuilt ivfflat index with lists={lists}, "
+              f"queried at probes={ivfflat_probes(lists)}.")
 
     return total_chunks
 

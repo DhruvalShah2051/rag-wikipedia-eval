@@ -10,7 +10,7 @@ import pytest
 
 import rag_pipeline
 from conftest import FakeConnection, FakeGroqClient
-from config import GROQ_MODEL, TOP_K
+from config import GROQ_MODEL, IVFFLAT_PROBES, TOP_K
 from rag_pipeline import Generation, answer_question, build_prompt, generate_answer, retrieve_chunks
 
 
@@ -29,6 +29,20 @@ def fake_db(monkeypatch, fake_encoder):
     monkeypatch.setattr(rag_pipeline.psycopg2, "connect", lambda **kwargs: connection)
 
     return connection
+
+
+def select_statement(connection):
+    """
+    The retrieval SELECT, found by content rather than by position.
+
+    retrieve_chunks issues a session SET before the query, and more setup
+    statements may appear later; a test that hardcodes executed[0] breaks on
+    every such change without saying anything useful.
+    """
+    for sql, params in connection.cursor_obj.executed:
+        if "SELECT" in sql.upper():
+            return sql, params
+    raise AssertionError("no SELECT was executed")
 
 
 # --------------------------------------------------------------------------
@@ -61,14 +75,14 @@ def test_retrieve_embeds_the_query(fake_db, fake_encoder):
 def test_retrieve_passes_top_k_to_the_query(fake_db):
     retrieve_chunks("anything", top_k=7)
 
-    _sql, params = fake_db.cursor_obj.executed[0]
+    _sql, params = select_statement(fake_db)
     assert params[1] == 7
 
 
 def test_retrieve_defaults_to_configured_top_k(fake_db):
     retrieve_chunks("anything")
 
-    _sql, params = fake_db.cursor_obj.executed[0]
+    _sql, params = select_statement(fake_db)
     assert params[1] == TOP_K
 
 
@@ -79,7 +93,7 @@ def test_retrieve_sends_the_embedding_as_a_vector_parameter(fake_db, fake_encode
     """
     retrieve_chunks("anything")
 
-    sql, params = fake_db.cursor_obj.executed[0]
+    sql, params = select_statement(fake_db)
     assert "%s::vector" in sql
     assert params[0] == [0.0] * fake_encoder.dim
 
@@ -88,9 +102,39 @@ def test_retrieve_orders_by_cosine_distance_ascending(fake_db):
     """Lower pgvector cosine distance means more similar, so ASC is nearest-first."""
     retrieve_chunks("anything")
 
-    sql, _params = fake_db.cursor_obj.executed[0]
+    sql, _params = select_statement(fake_db)
     assert "<=>" in sql
     assert "ORDER BY distance ASC" in sql
+
+
+def test_retrieve_sets_ivfflat_probes_on_every_connection(fake_db):
+    """
+    Each call opens a fresh connection and ivfflat.probes resets to 1 on each
+    one, so it has to be set per call rather than once at setup. Leaving it at
+    the default over a badly sized index is what recorded a genuine 10/10
+    retrieval as 90%.
+    """
+    retrieve_chunks("anything")
+
+    probe_statements = [
+        (sql, params) for sql, params in fake_db.cursor_obj.executed
+        if "ivfflat.probes" in sql
+    ]
+    assert probe_statements, "ivfflat.probes was never set"
+
+    _sql, params = probe_statements[0]
+    assert params == (IVFFLAT_PROBES,)
+
+
+def test_probes_are_set_before_the_query_runs(fake_db):
+    """Setting probes after the SELECT would have no effect on it."""
+    retrieve_chunks("anything")
+
+    order = [sql for sql, _params in fake_db.cursor_obj.executed]
+    probes_at = next(i for i, sql in enumerate(order) if "ivfflat.probes" in sql)
+    select_at = next(i for i, sql in enumerate(order) if "SELECT" in sql.upper())
+
+    assert probes_at < select_at
 
 
 def test_retrieve_closes_cursor_and_connection(fake_db):
