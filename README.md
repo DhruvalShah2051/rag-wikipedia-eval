@@ -16,19 +16,19 @@ This project demonstrates:
 
 ## Results
 
-Current evaluation across the 10-question test set, generating with
-`openai/gpt-oss-20b` and grading with `openai/gpt-oss-120b`:
+Current evaluation across the 10-question test set, over a 414-chunk corpus,
+generating with `openai/gpt-oss-20b` and grading with `openai/gpt-oss-120b`:
 
 | Metric | Score |
 |---|---|
-| Retrieval accuracy | 9/10 (90%) |
+| Retrieval accuracy | 10/10 (100%) |
 | Answer accuracy (LLM-graded) | 10/10 (100%) |
+| Mean latency | 5.6s per query |
+| Mean tokens | 1629 per query |
 
-The same figures were originally measured with `llama-3.1-8b-instant` for both
-generation and grading. Groq has since decommissioned that model, so those
-numbers are no longer reproducible as recorded; the table above is a fresh
-measurement on the models named. Retrieval accuracy is unaffected by the model
-change either way, since retrieval is pure vector search.
+Retrieval was previously recorded as 9/10. That number was real but it was not
+measuring retrieval — it was measuring the recall of a misconfigured vector
+index. See step 7 below; it is the most useful thing this project has found.
 
 **How these numbers were reached (not just reported):**
 
@@ -36,10 +36,19 @@ change either way, since retrieval is pure vector search.
 2. Switched to an LLM-as-judge grading approach (Groq grades each answer against a short reference answer). Answer accuracy stayed flat at 70%, but manual inspection revealed the judge was **inconsistent**: two structurally identical bare-category answers were graded differently.
 3. Rewrote the grading rubric with explicit, ordered rules (e.g. "a bare category name with no supporting mechanism must be marked INCORRECT"). This fixed the inconsistency, but dropped measured accuracy to 50%, revealing that the *generation* prompt, not the evaluation harness, was the real problem: the model was defaulting to terse, unexplained answers.
 4. Updated the generation prompt to require 1-2 sentence answers that explain the underlying mechanism, not just name a category. Re-ran evaluation: **answer accuracy rose to 100%**.
-5. One retrieval miss remains (a query about "unlabeled data" didn't retrieve the correct source article), but the model still answered correctly from background knowledge, an interesting case study in where RAG helps vs. where it's redundant with a model's pretrained knowledge.
-6. Groq later decommissioned `llama-3.1-8b-instant`, and the harness stopped running entirely — a 404 from the API, not a degradation. Generation moved to `openai/gpt-oss-20b` and grading to a separate, larger `openai/gpt-oss-120b`. Splitting the judge off from the generator also removed a weakness that had been there from the start: the model had been grading its own answers. Re-running the harness on the new configuration reproduced 9/10 and 10/10, with the same "unlabeled data" retrieval miss.
+5. One retrieval miss appeared to remain (a query about "unlabeled data" didn't retrieve the correct source article), but the model still answered correctly. This was written up as a case study in where RAG helps vs. where it's redundant with pretrained knowledge. **It was not that.** See step 7.
+6. Groq later decommissioned `llama-3.1-8b-instant`, and the harness stopped running entirely — a 404 from the API, not a degradation. Generation moved to `openai/gpt-oss-20b` and grading to a separate, larger `openai/gpt-oss-120b`. Splitting the judge off from the generator also removed a weakness that had been there from the start: the model had been grading its own answers.
+7. **The retrieval score was measuring the wrong thing.** pgvector's `ivfflat` is an *approximate* index: it partitions vectors into `lists` and scans only `probes` of them per query. The index had been created once with a hardcoded `lists = 10` over ~414 chunks, and `probes` defaults to 1 — so every query examined roughly a tenth of the corpus. Re-ingesting made it worse: `TRUNCATE` and reload left the centroids describing rows that no longer existed. pgvector raises no error in either case; it just returns different neighbours. Measured directly on the same corpus:
 
-This progression (build → measure → find a harness bug → fix rubric → find a real generation bug → fix prompt → re-measure) is the actual point of the project: the evaluation harness isn't just a pass/fail gate, it's a debugging tool. Step 6 is the same idea applied to an external change — because the harness was reproducible, swapping the model underneath it was a measurement rather than a guess.
+   | Search mode | Retrieval accuracy |
+   |---|---|
+   | `probes=1` (the default, what had been running) | 8/10 |
+   | `probes=10` (`probes` == `lists`) | 10/10 |
+   | Exact search, index bypassed | 10/10 |
+
+   Retrieval had always been 10/10. Sizing `lists` from the row count (pgvector's own guidance is `rows / 1000`), rebuilding the index after every ingestion, and setting `probes` explicitly per query brought the measured number to what it had actually been all along. The "interesting case study" in step 5 was a misconfigured index.
+
+This progression (build → measure → find a harness bug → fix rubric → find a real generation bug → fix prompt → re-measure) is the actual point of the project: the evaluation harness isn't just a pass/fail gate, it's a debugging tool. Step 6 is the same idea applied to an external change. Step 7 is the sharpest version of it — a headline number was measuring infrastructure configuration rather than the thing it was named after, and only a reproducible harness could show that.
 
 ---
 

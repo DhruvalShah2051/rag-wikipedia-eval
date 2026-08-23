@@ -22,9 +22,9 @@ GitHub Repository: https://github.com/DhruvalShah2051/rag-wikipedia-eval
 - **Evaluation harness:** LLM-as-judge with an explicit rule-based grading rubric over a
   10-question benchmark suite, graded by a separate larger model (`openai/gpt-oss-120b`)
   so the generator is not grading its own output
-- **Measured results:** 90% retrieval accuracy at top-4 retrieval depth; answer accuracy
-  improved from 50% to 100% across 3 iterative evaluation cycles (keyword matching, then
-  a loose LLM judge, then a strict rubric, then a generation-prompt fix)
+- **Measured results:** 100% retrieval accuracy at top-4 over a 414-chunk corpus; 100%
+  answer accuracy, improved from 50% across iterative evaluation cycles (keyword matching,
+  then a loose LLM judge, then a strict rubric, then a generation-prompt fix)
 - **Testing:** 54 pytest tests over chunking, the grading rubric, and retrieval, split into
   unit tests (no database or API key) and integration tests against real pgvector
 - **CI:** GitHub Actions runs both tiers on every push and PR and builds the container image;
@@ -32,8 +32,21 @@ GitHub Repository: https://github.com/DhruvalShah2051/rag-wikipedia-eval
 
 Note on the model: the original results were produced with `llama-3.1-8b-instant`, which
 Groq decommissioned during Phase 1 — the API began returning 404 and the harness could not
-run at all. The harness was re-run on the models above and reproduced 9/10 and 10/10. Do not
-"restore" the Llama model name anywhere; it no longer exists on this account.
+run at all. Do not "restore" the Llama model name anywhere; it no longer exists on this
+account.
+
+Note on the numbers: the earlier figures of 416 chunks and 90% retrieval are both
+superseded, and neither was wrong when recorded — they were measuring something other than
+what they were named after.
+
+- **416 → 414 chunks.** `chunk_text` emitted a redundant trailing chunk that duplicated the
+  tail of its predecessor. Fixed in Phase 2.
+- **90% → 100% retrieval.** The old score was ivfflat recall, not retrieval quality. A
+  hardcoded `lists = 10` over ~414 chunks with the default `probes = 1` scanned a tenth of
+  the corpus per query, and re-ingesting left the centroids describing truncated rows.
+  Retrieval had always been 10/10. Do not hardcode `lists` again — it is computed from the
+  row count in `schema.ivfflat_lists`, the index is rebuilt on every ingest, and
+  `retrieve_chunks` sets `probes` per connection because the session value resets to 1.
 
 Do not change these numbers anywhere in the repo. They came from real runs. If a change
 alters measured performance, re-run the evaluation and report the new number rather than
