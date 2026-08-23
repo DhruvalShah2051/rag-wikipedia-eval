@@ -1,24 +1,34 @@
 # RAG Project: ML/AI Wikipedia Knowledge Base
 
+[![CI](https://github.com/DhruvalShah2051/rag-wikipedia-eval/actions/workflows/ci.yml/badge.svg)](https://github.com/DhruvalShah2051/rag-wikipedia-eval/actions/workflows/ci.yml)
+
 A retrieval-augmented generation (RAG) system that answers questions about
 machine learning and AI concepts using a curated set of Wikipedia articles,
-Pgvector for semantic search, and Groq (Llama 3) for generation.
+Pgvector for semantic search, and Groq for generation.
 
 This project demonstrates:
 - **Retrieval**: chunking, embedding, and vector similarity search
 - **Context engineering**: structured prompt assembly with retrieved context
 - **Harness engineering**: a reproducible evaluation pipeline with real accuracy metrics
+- **Automated testing and CI**: a pytest suite run against a real pgvector instance on every push
 
 ---
 
 ## Results
 
-Final evaluation across a 10-question test set:
+Current evaluation across the 10-question test set, generating with
+`openai/gpt-oss-20b` and grading with `openai/gpt-oss-120b`:
 
 | Metric | Score |
 |---|---|
 | Retrieval accuracy | 9/10 (90%) |
 | Answer accuracy (LLM-graded) | 10/10 (100%) |
+
+The same figures were originally measured with `llama-3.1-8b-instant` for both
+generation and grading. Groq has since decommissioned that model, so those
+numbers are no longer reproducible as recorded; the table above is a fresh
+measurement on the models named. Retrieval accuracy is unaffected by the model
+change either way, since retrieval is pure vector search.
 
 **How these numbers were reached (not just reported):**
 
@@ -27,8 +37,9 @@ Final evaluation across a 10-question test set:
 3. Rewrote the grading rubric with explicit, ordered rules (e.g. "a bare category name with no supporting mechanism must be marked INCORRECT"). This fixed the inconsistency, but dropped measured accuracy to 50%, revealing that the *generation* prompt, not the evaluation harness, was the real problem: the model was defaulting to terse, unexplained answers.
 4. Updated the generation prompt to require 1-2 sentence answers that explain the underlying mechanism, not just name a category. Re-ran evaluation: **answer accuracy rose to 100%**.
 5. One retrieval miss remains (a query about "unlabeled data" didn't retrieve the correct source article), but the model still answered correctly from background knowledge, an interesting case study in where RAG helps vs. where it's redundant with a model's pretrained knowledge.
+6. Groq later decommissioned `llama-3.1-8b-instant`, and the harness stopped running entirely — a 404 from the API, not a degradation. Generation moved to `openai/gpt-oss-20b` and grading to a separate, larger `openai/gpt-oss-120b`. Splitting the judge off from the generator also removed a weakness that had been there from the start: the model had been grading its own answers. Re-running the harness on the new configuration reproduced 9/10 and 10/10, with the same "unlabeled data" retrieval miss.
 
-This progression (build → measure → find a harness bug → fix rubric → find a real generation bug → fix prompt → re-measure) is the actual point of the project: the evaluation harness isn't just a pass/fail gate, it's a debugging tool.
+This progression (build → measure → find a harness bug → fix rubric → find a real generation bug → fix prompt → re-measure) is the actual point of the project: the evaluation harness isn't just a pass/fail gate, it's a debugging tool. Step 6 is the same idea applied to an external change — because the harness was reproducible, swapping the model underneath it was a measurement rather than a guess.
 
 ---
 
@@ -133,6 +144,75 @@ python 5_evaluate.py
 | 4 | `4_query.py` | Interactive CLI: ask a question, see retrieved chunks + generated answer |
 | 5 | `5_evaluate.py` | Runs 10 fixed test questions, checks retrieval + answer accuracy, saves results to `evaluation_results.json` |
 
+The numbered scripts are entry points. The logic they share lives in modules
+they import, which is also what makes it testable — a filename beginning with a
+digit is not a valid Python module name, so nothing inside `3_chunk_and_embed.py`
+or `5_evaluate.py` can be imported by a test.
+
+| Module | Holds |
+|---|---|
+| `config.py` | All tunable constants and connection settings |
+| `rag_pipeline.py` | Retrieval, prompt assembly, generation |
+| `chunking.py` | The chunking rule (`chunk_text`) |
+| `grading.py` | The LLM-judge rubric and verdict parsing |
+| `schema.py` | The `document_chunks` DDL, shared with the integration tests |
+
+---
+
+## Testing
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+The suite is in two tiers:
+
+- **Unit tests** fake Postgres and the embedding model, so they need no
+  database, no API key, and no model download.
+- **Integration tests** (marked `integration`) run the real embedding model
+  against a real pgvector instance. They skip themselves when no database is
+  reachable, so plain `pytest` is safe to run anywhere.
+
+```bash
+pytest -m "not integration"   # unit tests only
+pytest -m integration         # requires Postgres + pgvector
+```
+
+Integration tests build their tables in a dedicated `rag_test` schema, so they
+cannot touch the real corpus in `public`.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request:
+
+| Job | What it does |
+|---|---|
+| `unit` | Unit tests, and a check that the modules import without a `GROQ_API_KEY` |
+| `integration` | Integration tests against a `pgvector/pgvector:pg16` service container |
+| `docker` | Builds the image; pushes to GHCR only from `main` |
+
+No job needs a repository secret — every LLM call in the suite is stubbed, and
+the registry push uses the built-in `GITHUB_TOKEN`.
+
+---
+
+## Running the harness in a container
+
+```bash
+docker build -t rag-eval .
+
+docker run --rm \
+  -e GROQ_API_KEY \
+  -e DB_HOST=host.docker.internal \
+  -e DB_PASSWORD=yourpassword \
+  rag-eval
+```
+
+The default command runs the evaluation harness, so the container reproduces the
+benchmark against a reachable Postgres. The embedding weights are baked into the
+image, so startup does not depend on Hugging Face being reachable.
+
 ---
 
 ## Customizing / extending this project
@@ -141,4 +221,6 @@ python 5_evaluate.py
 - **Tune chunking**: adjust `CHUNK_SIZE_WORDS` / `CHUNK_OVERLAP_WORDS` in `config.py`, then re-run steps 2-3
 - **Try a different embedding model**: change `EMBEDDING_MODEL_NAME` in `config.py` (make sure `EMBEDDING_DIM` matches the new model's output size)
 - **Add more evaluation questions**: extend `TEST_CASES` in `5_evaluate.py`
+- **Change the generator or the judge**: `GROQ_MODEL` and `JUDGE_MODEL` in `config.py`. Keep them different — a model grading its own output grades itself generously
+- **After any of the above**: re-run `pytest`, then re-run `5_evaluate.py` and report the number it prints rather than the one already written down
 - **Swap LLM providers**: `rag_pipeline.py` currently uses Groq; swapping to OpenAI/Anthropic just means changing the client initialization and the `generate_answer` call, same pattern as your ProbeLLM multi-provider setup
