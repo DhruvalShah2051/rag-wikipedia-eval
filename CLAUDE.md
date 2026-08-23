@@ -121,13 +121,32 @@ Things later phases need to know:
   `tests/test_chunking.py`. Fixing it changes the 416-chunk corpus and every measurement
   over it, so fix it during the Phase 2 chunking sweep, which re-measures anyway.
 
-### Phase 2 — MLflow experiment tracking (Windows) — TODO
+### Phase 2 — MLflow experiment tracking (Windows) — DONE
 Goal: back "MLflow", "experiment tracking", "model registry".
 - Instrument the evaluation harness so each run logs to MLflow
 - Parameters: chunk size, chunk overlap, top-k, embedding model, judge prompt version
 - Metrics: retrieval accuracy, answer accuracy, mean latency, tokens per query
 - Run a real sweep (top-k across 2/4/8, at least two chunk sizes) so there is a genuine
   comparison table, not three retroactive data points
+
+Things later phases need to know:
+- Tracking store is `sqlite:///mlflow.db`, not the default `./mlruns` file store. The model
+  registry does not work against the file store. Do not "simplify" it back.
+- The registered pyfunc model is **not self-contained**. Embeddings live in Postgres, so a
+  loaded version needs a reachable pgvector instance with a corpus ingested at that
+  version's chunk size. Phase 3's service must not assume the artifact is portable.
+- `6_sweep.py` is resumable: it skips configurations already logged in MLflow. One cell
+  (chunk_size=500, top_k=8) is still unrun — the Groq free tier's 200,000 token/day cap was
+  exhausted. Re-running after a reset completes only that cell.
+- Groq free-tier limits are a real constraint on any phase that runs the benchmark in bulk.
+  `llm.DailyQuotaExceeded` distinguishes a daily cap from a per-minute limit; do not retry
+  the former. Phase 4's Airflow DAG will hit this if it evaluates on a schedule.
+- Latency is logged but is **not** trustworthy as a configuration property: Groq queues
+  server-side as an account nears its quota. Do not put it in a comparison table without
+  controlling for that.
+- Every accuracy metric currently saturates at 100% on the 10-question benchmark, so the
+  suite can no longer distinguish configurations. A harder or larger benchmark is the
+  natural next improvement if tuning results are ever needed.
 
 ### Phase 3 — Kubernetes deployment (WSL2 from here on) — TODO
 Goal: back "Kubernetes", "container orchestration".
@@ -166,6 +185,14 @@ Update this as phases complete. Keep entries to one or two lines.
 
 - **Phase 1 — 2026-08-23.** 54 pytest tests (unit + pgvector integration), GitHub Actions CI
   with three jobs, and a container image published to GHCR from `main`.
+- **Phase 2 — 2026-08-23.** MLflow tracking on SQLite (9 params, 6 metrics, results file as
+  artifact), pipeline registered as a versioned pyfunc model, 5 of 6 sweep configurations
+  measured. 115 unit tests.
+- **Phase 2, unplanned and important.** The recorded 90% retrieval accuracy was measuring
+  ivfflat recall, not retrieval. A hardcoded `lists = 10` over ~414 chunks with the default
+  `probes = 1` scanned a tenth of the corpus; re-ingesting left centroids describing
+  truncated rows. Retrieval was always 10/10. Also fixed a chunking defect (416 → 414
+  chunks) and a UnicodeEncodeError that killed harness runs on a cp1252 console.
 - **Phase 1, unplanned.** Groq decommissioned `llama-3.1-8b-instant` mid-phase; moved
   generation to `openai/gpt-oss-20b` and split grading onto `openai/gpt-oss-120b`. Re-ran
   the harness: 9/10 retrieval, 10/10 answer accuracy. Also repaired `requirements.txt`,
