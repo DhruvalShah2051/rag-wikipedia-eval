@@ -9,6 +9,11 @@ __pycache__/
 # Fetched data (regenerable via 1_fetch_wikipedia.py)
 data/
 
+# MLflow tracking store and artifacts - regenerable by re-running the harness
+mlruns/
+mlartifacts/
+mlflow.db
+
 # OS files
 .DS_Store
 Thumbs.db

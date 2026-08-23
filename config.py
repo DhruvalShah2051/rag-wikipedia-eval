@@ -60,6 +60,14 @@ GROQ_MODEL = "openai/gpt-oss-20b"
 # worth trusting if the grader is independent of the thing being graded.
 JUDGE_MODEL = "openai/gpt-oss-120b"
 
+# --- Experiment tracking ---
+# SQLite rather than the default ./mlruns file store: MLflow's model registry
+# does not work against the file store, and Phase 2 registers the pipeline as a
+# versioned pyfunc model. Overridable so a later phase can point at a server.
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
+MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "rag-wikipedia-eval")
+MLFLOW_REGISTERED_MODEL = "rag-wikipedia-eval"
+
 # --- Wikipedia topic list (Machine Learning / AI concepts) ---
 WIKIPEDIA_ARTICLES = [
     "Machine learning",
