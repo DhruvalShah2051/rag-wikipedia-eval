@@ -1,0 +1,10 @@
+[tool.pytest.ini_options]
+# The modules under test live at the repo root, not in a package. `pythonpath`
+# puts the root on sys.path so tests/ can import them without a sys.path hack
+# in conftest.py.
+pythonpath = ["."]
+testpaths = ["tests"]
+
+markers = [
+    "integration: requires a running Postgres with pgvector (skipped when unreachable)",
+]
