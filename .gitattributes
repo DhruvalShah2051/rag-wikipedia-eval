@@ -1,0 +1,5 @@
+# Normalize line endings in the repo to LF.
+# This project is developed on Windows but runs in Linux containers, CI runners,
+# and (from Phase 3) WSL2. Without this, shell scripts and CI workflows checked
+# out on Windows would carry CRLF into environments that reject it.
+* text=auto eol=lf

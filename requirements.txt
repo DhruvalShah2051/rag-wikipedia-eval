@@ -1,6 +1,13 @@
 wikipedia-api==0.7.1
 sentence-transformers==3.0.1
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.12
 groq==1.6.0
 python-dotenv==1.0.1
-numpy==1.26.4
+numpy==2.5.1
+
+# torch arrives as a dependency of sentence-transformers, but it is pinned here
+# because the version matters and because CI and the Dockerfile must install it
+# from the PyTorch CPU index:
+#   pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
+# The default PyPI Linux wheel bundles CUDA and is several GB; nothing here uses a GPU.
+torch==2.13.0

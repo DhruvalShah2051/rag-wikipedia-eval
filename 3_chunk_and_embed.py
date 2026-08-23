@@ -8,33 +8,10 @@ import os
 import glob
 import psycopg2
 from sentence_transformers import SentenceTransformer
-from config import (
-    DB_CONFIG,
-    EMBEDDING_MODEL_NAME,
-    CHUNK_SIZE_WORDS,
-    CHUNK_OVERLAP_WORDS,
-)
+from config import DB_CONFIG, EMBEDDING_MODEL_NAME
+from chunking import chunk_text
 
 RAW_DATA_DIR = "data/raw"
-
-
-def chunk_text(text, chunk_size=CHUNK_SIZE_WORDS, overlap=CHUNK_OVERLAP_WORDS):
-    """
-    Split text into overlapping chunks of `chunk_size` words.
-    Overlap helps avoid losing context that falls on a chunk boundary.
-    """
-    words = text.split()
-    chunks = []
-    start = 0
-
-    while start < len(words):
-        end = start + chunk_size
-        chunk = " ".join(words[start:end])
-        if chunk.strip():
-            chunks.append(chunk)
-        start += chunk_size - overlap  # move forward, but overlap with previous chunk
-
-    return chunks
 
 
 def process_and_store_all():

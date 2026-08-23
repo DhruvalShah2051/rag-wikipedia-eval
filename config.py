@@ -35,7 +35,19 @@ CHUNK_OVERLAP_WORDS = 50
 TOP_K = 4  # number of chunks to retrieve per query
 
 # --- Generation ---
-GROQ_MODEL = "llama-3.1-8b-instant"  # fast, free-tier friendly Groq model
+# Small and fast, so the benchmark measures retrieval quality rather than raw
+# model horsepower - a large model answers well from pretraining even when
+# retrieval misses, which hides exactly what this harness is meant to expose.
+#
+# This replaced llama-3.1-8b-instant, which produced the first recorded results
+# and was later decommissioned by Groq. See the Results section of the README.
+GROQ_MODEL = "openai/gpt-oss-20b"
+
+# --- Grading ---
+# The judge is deliberately a different, larger model than the generator. A model
+# grading its own output has a self-preference bias, and the harness is only
+# worth trusting if the grader is independent of the thing being graded.
+JUDGE_MODEL = "openai/gpt-oss-120b"
 
 # --- Wikipedia topic list (Machine Learning / AI concepts) ---
 WIKIPEDIA_ARTICLES = [
