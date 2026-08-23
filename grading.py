@@ -13,7 +13,7 @@ so treat it as a fixed artifact and re-run the harness if it is ever edited.
 import re
 
 from groq import Groq
-from config import GROQ_API_KEY, GROQ_MODEL
+from config import GROQ_API_KEY, JUDGE_MODEL
 
 # Constructed on first use rather than at import time, so this module can be
 # imported without a GROQ_API_KEY present (tests, CI, tooling).
@@ -118,7 +118,7 @@ def grade_answer_with_llm(query, reference_answer, model_answer, client=None):
     client = client or _get_judge_client()
 
     response = client.chat.completions.create(
-        model=GROQ_MODEL,
+        model=JUDGE_MODEL,
         messages=[
             {
                 "role": "user",

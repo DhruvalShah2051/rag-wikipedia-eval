@@ -13,10 +13,10 @@
         "Backpropagation"
       ],
       "retrieval_correct": true,
-      "answer": "Backpropagation is used for training a neural network by efficiently computing the gradient of the loss with respect to the network weights for a single input\u2013output example. This is done by propagating derivatives backward, one layer at a time, from the output layer to the input layer, thereby avoiding redundant chain-rule calculations.",
+      "answer": "Backpropagation is used to train neural networks by efficiently computing the gradient of a loss function with respect to each weight, allowing the model parameters to be updated in the direction that reduces error (e.g., via stochastic gradient descent or other optimizers). This gradient\u2011computing step is essential for learning the network\u2019s weights from data.",
       "reference_answer": "It is used to compute gradients for training neural networks by applying the chain rule.",
       "answer_correct": true,
-      "grading_reasoning": "The model's answer correctly explains the core mechanism of backpropagation, specifically how it computes gradients for training neural networks by propagating derivatives backward, which aligns with the reference answer (Rule 4)."
+      "grading_reasoning": "The answer correctly explains that backpropagation computes gradients of the loss with respect to each weight to train neural networks, providing the essential mechanism even though it omits the explicit mention of the chain rule (a minor detail)."
     },
     {
       "query": "What does a convolutional neural network specialize in processing?",
@@ -28,10 +28,10 @@
         "Convolutional neural network"
       ],
       "retrieval_correct": true,
-      "answer": "A convolutional neural network specializes in processing high-dimensional inputs, such as images, by learning filters that activate when they detect specific features at particular spatial positions. This allows the network to effectively extract and represent complex patterns in the input data.",
+      "answer": "A convolutional neural network specializes in processing spatially structured data, such as images or video frames, by learning local filters that detect features at specific positions and then combining these features across the entire input volume. This local connectivity and weight sharing allow the network to efficiently capture patterns that vary across space.",
       "reference_answer": "Image and grid-like data, using convolutional layers to detect spatial patterns.",
       "answer_correct": true,
-      "grading_reasoning": "The model's answer correctly explains the core mechanism of how convolutional neural networks process high-dimensional inputs, specifically mentioning the use of filters to detect spatial patterns, which aligns with the reference answer (Rule 4)."
+      "grading_reasoning": "The answer correctly identifies that CNNs process spatially structured (image/video) data and explains how convolutional layers use local filters and weight sharing to detect spatial patterns, satisfying the core mechanism requirement."
     },
     {
       "query": "What is overfitting in machine learning?",
@@ -43,10 +43,10 @@
         "Machine learning"
       ],
       "retrieval_correct": true,
-      "answer": "Overfitting in machine learning occurs when a statistical model or algorithm is too complex and learns the noise in the training data, resulting in poor performance on unseen data. This happens when the model has too many parameters and is able to perfectly fit the training data, but fails to generalize to new data due to its high complexity.",
+      "answer": "Overfitting occurs when a machine\u2011learning model learns the idiosyncratic noise of its training data rather than the underlying patterns, so it achieves near\u2011perfect accuracy on that data but performs poorly on new, unseen data. This happens when the model is too complex relative to the amount of data, causing high variance and a failure to generalize.",
       "reference_answer": "When a model fits the training data too closely, including its noise, and performs poorly on new/unseen data.",
       "answer_correct": true,
-      "grading_reasoning": "The model's answer correctly explains the core mechanism of overfitting, including the role of model complexity and the failure to generalize to new data, which matches the reference answer's key facts (Rule 4)."
+      "grading_reasoning": "The answer explains that the model learns noise instead of underlying patterns, leading to excellent training performance but poor performance on unseen data, matching the core mechanism required."
     },
     {
       "query": "What mechanism do transformers use to weigh the importance of different words?",
@@ -58,10 +58,10 @@
         "Transformer (deep learning architecture)"
       ],
       "retrieval_correct": true,
-      "answer": "Transformers use a parallel multi-head attention mechanism to weigh the importance of different words, allowing the signal for key tokens to be amplified and less important tokens to be diminished. This mechanism enables the model to capture global dependencies and access any part of a sentence directly, rather than only through the previous state.",
+      "answer": "Transformers use a multi\u2011head attention mechanism\u2014specifically self\u2011attention\u2014to assign \u201csoft\u201d weights to each token, allowing the model to amplify important words and diminish less relevant ones during each layer\u2019s computation. This attention weighting lets every token directly access and evaluate all other tokens in the sequence.",
       "reference_answer": "The attention mechanism, which assigns different weights to different input tokens.",
       "answer_correct": true,
-      "grading_reasoning": "The model's answer correctly explains the mechanism used by transformers to weigh the importance of different words, specifically mentioning the parallel multi-head attention mechanism and its effect on key tokens, which aligns with the core mechanism described in the reference answer (Rule 4)."
+      "grading_reasoning": "The answer identifies the attention mechanism (specifically multi\u2011head self\u2011attention) and explains how it assigns soft weights to tokens, satisfying the core requirement and providing the needed explanation (Rule\u202f3)."
     },
     {
       "query": "What type of learning uses labeled data?",
@@ -73,10 +73,10 @@
         "Unsupervised learning"
       ],
       "retrieval_correct": true,
-      "answer": "Supervised learning uses labeled data, where each piece of input data is provided with the correct output, allowing the algorithm to learn a mapping between inputs and outputs. This process involves training a statistical model using labeled data, which is guided by a teacher or supervisor who provides the training data.",
+      "answer": "The type of learning that uses labeled data is **supervised learning**. In supervised learning, each training example is paired with its correct output (the label), allowing the algorithm to learn a mapping from inputs to those labeled outputs.",
       "reference_answer": "Supervised learning, which trains on data with labeled input-output pairs.",
       "answer_correct": true,
-      "grading_reasoning": "The model's answer correctly explains the mechanism of supervised learning using labeled data, providing a clear understanding of how the algorithm learns a mapping between inputs and outputs (Rule 3)."
+      "grading_reasoning": "The answer not only names supervised learning but also explains that it uses labeled input-output pairs to learn a mapping, satisfying the requirement for a supporting explanation."
     },
     {
       "query": "What algorithm is commonly used to minimize a neural network's loss function?",
@@ -88,10 +88,10 @@
         "Recurrent neural network"
       ],
       "retrieval_correct": true,
-      "answer": "Gradient descent is a method for unconstrained mathematical optimization that is commonly used to minimize a neural network's loss function. This is because it takes repeated steps in the opposite direction of the gradient of the function at the current point, which leads to a trajectory that minimizes the function.",
+      "answer": "The most common method is stochastic gradient descent (SGD), an iterative algorithm that repeatedly updates the network weights in the negative direction of the loss gradient to reduce the loss function. This approach is the foundation for training most deep neural networks.",
       "reference_answer": "Gradient descent, which iteratively adjusts parameters in the direction that reduces the loss.",
       "answer_correct": true,
-      "grading_reasoning": "The model's answer correctly explains the mechanism of gradient descent, which iteratively adjusts parameters in the direction that reduces the loss, thereby conveying the core reasoning behind its use in minimizing a neural network's loss function (Rule 4)."
+      "grading_reasoning": "The answer explains the core mechanism\u2014iteratively updating weights in the negative gradient direction to reduce loss\u2014fulfilling the reference\u2019s description and providing the required explanation."
     },
     {
       "query": "What type of neural network is designed for sequential data?",
@@ -103,10 +103,10 @@
         "Deep learning"
       ],
       "retrieval_correct": true,
-      "answer": "Recurrent neural networks (RNNs) are designed for processing sequential data, such as text, speech, and time series, where the order of elements is important. This is because RNNs utilize recurrent connections, where the output of a neuron at one time step is fed back as input to the network at the next time step, enabling them to capture temporal dependencies and patterns within sequences.",
+      "answer": "The type of neural network designed for sequential data is a **recurrent neural network (RNN)**, because it uses recurrent connections that feed each neuron\u2019s output back as input at the next time step, allowing it to capture temporal dependencies in sequences.",
       "reference_answer": "Recurrent neural networks (RNNs), designed to handle sequential or time-series data.",
       "answer_correct": true,
-      "grading_reasoning": "The model's answer correctly explains the core mechanism of RNNs handling sequential data by utilizing recurrent connections and capturing temporal dependencies, which meets the requirement of providing a supporting mechanism and reasoning (Rule 2)."
+      "grading_reasoning": "The answer correctly identifies recurrent neural networks and explains how their recurrent connections enable handling of sequential data, satisfying the requirement for a supporting mechanism."
     },
     {
       "query": "What is reinforcement learning based on?",
@@ -118,10 +118,10 @@
         "Reinforcement learning"
       ],
       "retrieval_correct": true,
-      "answer": "Reinforcement learning is based on the interactions between an intelligent agent and its dynamic environment, where the agent learns to maximize a reward signal through trial and error. This is achieved by balancing exploration, where the agent tries new actions to learn more about the environment, and exploitation, where the agent uses its current knowledge to take the best action.",
+      "answer": "Reinforcement learning is based on an agent learning from repeated interactions with a dynamic environment, where it receives reward signals and must balance exploration of new actions with exploitation of known good actions to maximize cumulative reward. This learning process is typically formalized using a Markov decision process framework that captures states, actions, transition probabilities, and immediate rewards.",
       "reference_answer": "An agent learning to take actions that maximize cumulative reward through trial-and-error interaction with an environment.",
       "answer_correct": true,
-      "grading_reasoning": "The model's answer correctly conveys the core mechanism of reinforcement learning through trial-and-error interaction with an environment to maximize a reward signal, matching the reference answer's key facts (Rule 4)."
+      "grading_reasoning": "The answer correctly describes an agent learning via trial\u2011and\u2011error interaction with an environment to maximize cumulative reward, providing the necessary explanation of the core mechanism."
     },
     {
       "query": "What does NLP stand for and what does it deal with?",
@@ -133,10 +133,10 @@
         "Natural language processing"
       ],
       "retrieval_correct": true,
-      "answer": "NLP stands for Natural Language Processing, which deals with the mental action or process of acquiring knowledge and understanding through thought, experience, and the senses, specifically focusing on the technical operationalization of increasingly advanced aspects of cognitive behavior to analyze, understand, and generate human language. This involves tasks such as text and speech processing, entity recognition, and document analysis to extract meaningful information from natural language inputs.",
+      "answer": "NLP stands for **Natural Language Processing**. It deals with enabling computers to understand, interpret, and generate human language, covering tasks such as text and speech recognition, parsing, semantic analysis, and higher\u2011level applications like document extraction and natural\u2011language generation.",
       "reference_answer": "Natural Language Processing; it deals with enabling computers to understand and process human language.",
       "answer_correct": true,
-      "grading_reasoning": "The model's answer correctly conveys the core mechanism of NLP, explaining how it deals with enabling computers to understand and process human language, which aligns with the reference answer (Rule 4)."
+      "grading_reasoning": "The answer names Natural Language Processing and correctly explains that it enables computers to understand, interpret, and generate human language, satisfying the core mechanism required."
     },
     {
       "query": "What learning approach works with unlabeled data?",
@@ -148,10 +148,10 @@
         "Large language model"
       ],
       "retrieval_correct": false,
-      "answer": "Unsupervised learning works with unlabeled data. This approach involves training a model on data without any pre-defined labels or target outputs, allowing the model to discover patterns and relationships on its own.",
+      "answer": "Unsupervised learning works with unlabeled data, learning patterns or representations without relying on explicit labels. A related variant, self\u2011supervised learning, also uses unlabeled data by creating its own supervisory signals from the data itself.",
       "reference_answer": "Unsupervised learning, which finds patterns or structure in data without labeled outputs.",
       "answer_correct": true,
-      "grading_reasoning": "The model's answer correctly explains the \"how\" and \"why\" of unsupervised learning, meeting the requirement of providing supporting mechanism and reasoning (Rule 2)."
+      "grading_reasoning": "The answer names unsupervised learning and explains that it learns patterns from unlabeled data without explicit labels, satisfying the requirement for a supporting explanation (Rule\u202f2)."
     }
   ]
 }

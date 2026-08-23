@@ -160,6 +160,21 @@ def test_grade_answer_grades_deterministically():
     assert client.calls[0]["temperature"] == 0.0
 
 
+def test_judge_is_a_different_model_from_the_generator():
+    """
+    A model grading its own output has a self-preference bias, so the judge is
+    deliberately independent of the generator. If these two config values ever
+    collapse to the same string, the harness quietly stops being independent.
+    """
+    from config import GROQ_MODEL, JUDGE_MODEL
+
+    client = FakeGroqClient("VERDICT: CORRECT")
+    grade_answer_with_llm("q", "ref", "ans", client=client)
+
+    assert client.calls[0]["model"] == JUDGE_MODEL
+    assert JUDGE_MODEL != GROQ_MODEL
+
+
 def test_grade_answer_sends_the_rubric_prompt():
     client = FakeGroqClient("VERDICT: CORRECT")
 
