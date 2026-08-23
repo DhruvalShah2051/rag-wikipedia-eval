@@ -10,6 +10,8 @@ Two tiers of test live here:
     so plain `pytest` is safe to run on any machine.
 """
 
+import os
+
 import psycopg2
 import pytest
 
@@ -170,11 +172,19 @@ def pg_connection():
 
     This is what keeps `pytest` with no arguments safe to run on a laptop with
     no Postgres running.
+
+    Skipping is the wrong behaviour in CI, though: a service container that
+    failed to start would turn every integration test into a skip and the job
+    would still report success. Setting RAG_REQUIRE_DB turns the skip into a
+    failure, so the CI job can only pass by actually reaching a database.
     """
     try:
         conn = psycopg2.connect(**DB_CONFIG)
     except psycopg2.Error as exc:
-        pytest.skip(f"no Postgres reachable at {DB_CONFIG['host']}:{DB_CONFIG['port']} ({exc})")
+        message = f"no Postgres reachable at {DB_CONFIG['host']}:{DB_CONFIG['port']} ({exc})"
+        if os.getenv("RAG_REQUIRE_DB"):
+            pytest.fail(f"RAG_REQUIRE_DB is set but {message}", pytrace=False)
+        pytest.skip(message)
 
     conn.autocommit = True
     yield conn

@@ -66,6 +66,10 @@ jobs:
       DB_NAME: rag_project
       DB_USER: postgres
       DB_PASSWORD: postgres
+      # The integration tests skip themselves when no database is reachable,
+      # which would let a broken service container report success. This turns
+      # that skip into a failure here, where a database is guaranteed.
+      RAG_REQUIRE_DB: '1'
 
     steps:
       - uses: actions/checkout@v4
@@ -93,9 +97,9 @@ jobs:
           key: hf-all-MiniLM-L6-v2-${{ runner.os }}
 
       - name: Run integration tests
-        # These tests skip themselves when no database is reachable, which would
-        # turn a broken service container into a silent green run. -ra surfaces
-        # any skip in the log so that cannot pass unnoticed.
+        # RAG_REQUIRE_DB (set above) makes an unreachable database a failure
+        # rather than a skip. -ra additionally surfaces any other skip in the
+        # log, so a quietly-not-running test cannot hide behind a green check.
         run: pytest -m integration -v -ra
 
   docker:
