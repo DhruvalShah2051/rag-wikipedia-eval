@@ -139,6 +139,9 @@ python 4_query.py
 
 # Step 5: Run the evaluation harness (automated accuracy scoring)
 python 5_evaluate.py
+
+# Step 6: Sweep chunk size and retrieval depth, logging each run to MLflow
+python 6_sweep.py
 ```
 
 ---
@@ -151,7 +154,8 @@ python 5_evaluate.py
 | 2 | `2_setup_db.py` | Creates the `document_chunks` table + pgvector index |
 | 3 | `3_chunk_and_embed.py` | Splits articles into overlapping chunks, embeds each with `sentence-transformers`, stores vectors in Postgres |
 | 4 | `4_query.py` | Interactive CLI: ask a question, see retrieved chunks + generated answer |
-| 5 | `5_evaluate.py` | Runs 10 fixed test questions, checks retrieval + answer accuracy, saves results to `evaluation_results.json` |
+| 5 | `5_evaluate.py` | Runs 10 fixed test questions, checks retrieval + answer accuracy, saves results to `evaluation_results.json`, logs the run to MLflow |
+| 6 | `6_sweep.py` | Evaluates a grid of chunk sizes and retrieval depths, logging and registering each configuration |
 
 The numbered scripts are entry points. The logic they share lives in modules
 they import, which is also what makes it testable — a filename beginning with a
@@ -164,7 +168,13 @@ or `5_evaluate.py` can be imported by a test.
 | `rag_pipeline.py` | Retrieval, prompt assembly, generation |
 | `chunking.py` | The chunking rule (`chunk_text`) |
 | `grading.py` | The LLM-judge rubric and verdict parsing |
-| `schema.py` | The `document_chunks` DDL, shared with the integration tests |
+| `schema.py` | The `document_chunks` DDL and ivfflat index sizing |
+| `ingest.py` | Chunk, embed, store, and rebuild the index |
+| `evaluation.py` | The benchmark suite and the scoring loop |
+| `llm.py` | The shared Groq call path — retries and timing |
+| `experiment.py` | MLflow parameter and metric logging |
+| `rag_model.py` | The pipeline packaged as a pyfunc model |
+| `console.py` | UTF-8 console output for the entry points |
 
 ---
 
@@ -203,6 +213,53 @@ cannot touch the real corpus in `public`.
 
 No job needs a repository secret — every LLM call in the suite is stubbed, and
 the registry push uses the built-in `GITHUB_TOKEN`.
+
+---
+
+## Experiment tracking
+
+Every harness run is logged to MLflow, backed by a local SQLite store:
+
+```bash
+python 5_evaluate.py                                    # logs one run
+mlflow ui --backend-store-uri sqlite:///mlflow.db       # then open localhost:5000
+```
+
+Each run records nine parameters and six metrics:
+
+| Parameters | Metrics |
+|---|---|
+| `top_k`, `chunk_size`, `chunk_overlap` | `retrieval_accuracy`, `answer_accuracy` |
+| `embedding_model`, `generation_model`, `judge_model` | `mean_latency_s`, `mean_tokens_per_query` |
+| `judge_prompt_version`, `ivfflat_lists`, `ivfflat_probes` | `chunk_count`, `unparsed_verdicts` |
+
+The parameter list is not generic. `judge_prompt_version` is there because two
+runs graded under different rubrics are not comparable. `ivfflat_lists` and
+`ivfflat_probes` are there because of step 7 above — a retrieval score without
+the index configuration behind it is not interpretable, and that exact omission
+is what let a wrong number stand. The per-question `evaluation_results.json` is
+attached to each run as an artifact, so a regression can be diagnosed question
+by question rather than only seen as a lower aggregate.
+
+### Model registry
+
+Each swept configuration is logged as an `mlflow.pyfunc` model and registered as
+a version of `rag-wikipedia-eval`, from inside the run that measured it — so a
+registered version always has its evaluation attached.
+
+**The registered artifact is not self-contained.** The embeddings live in
+Postgres, not in the artifact. Loading a version requires a reachable pgvector
+instance holding a corpus ingested at that version's `chunk_size`, plus a
+`GROQ_API_KEY`. What the registry versions is the pipeline *configuration* and
+the code that runs it, which is what Phase 3's service will load and what makes
+a regression traceable to a configuration.
+
+```python
+import mlflow
+mlflow.set_tracking_uri("sqlite:///mlflow.db")
+model = mlflow.pyfunc.load_model("models:/rag-wikipedia-eval/1")
+model.predict(["What is backpropagation used for?"])
+```
 
 ---
 
