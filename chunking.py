@@ -24,6 +24,14 @@ def chunk_text(text, chunk_size=CHUNK_SIZE_WORDS, overlap=CHUNK_OVERLAP_WORDS):
         chunk = " ".join(words[start:end])
         if chunk.strip():
             chunks.append(chunk)
+
+        # Stop once a chunk has reached the end of the text. Advancing again
+        # would emit the trailing `overlap` words a second time as a chunk that
+        # is a verbatim substring of this one - duplicate text in the vector
+        # store, and a chunk count inflated by one per article.
+        if end >= len(words):
+            break
+
         start += chunk_size - overlap  # move forward, but overlap with previous chunk
 
     return chunks

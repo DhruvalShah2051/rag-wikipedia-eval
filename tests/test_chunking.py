@@ -27,31 +27,41 @@ def test_first_chunk_holds_the_first_chunk_size_words():
     assert chunk_text(text, chunk_size=100, overlap=20)[0] == text
 
 
-def test_a_short_tail_produces_a_redundant_final_chunk():
+def test_text_of_exactly_chunk_size_becomes_one_chunk():
     """
-    KNOWN BEHAVIOUR, not a desired one.
+    Regression test for the defect found in Phase 1 and fixed in Phase 2.
 
-    When the remaining words after the last full chunk all fall inside that
-    chunk's span, the loop still emits them as a final chunk - a verbatim
-    substring of its predecessor. 100 words at chunk_size=100/overlap=20 yields
-    two chunks, the second being words 80-99 again.
-
-    That inflates the stored chunk count and puts duplicate text in the vector
-    store. It is pinned here rather than fixed because fixing it changes the
-    recorded 416-chunk corpus and every measurement taken over it; the natural
-    place to change it is the Phase 2 chunking sweep, which re-measures anyway.
+    The loop used to advance past a chunk that had already reached the end of
+    the text, emitting the trailing `overlap` words again as a standalone chunk
+    that was a verbatim substring of its predecessor. 100 words at
+    chunk_size=100/overlap=20 produced two chunks, the second being words 80-99
+    a second time.
     """
-    chunks = chunk_text(words(100), chunk_size=100, overlap=20)
-
-    assert len(chunks) == 2
-    assert chunks[1] in chunks[0]
+    text = words(100)
+    assert chunk_text(text, chunk_size=100, overlap=20) == [text]
 
 
-def test_a_long_tail_produces_a_genuinely_new_final_chunk():
-    """The complement of the case above: a tail with new words is not redundant."""
+def test_no_chunk_is_contained_in_another():
+    """
+    The general form of the same defect: no chunk should ever be a substring of
+    another, at any text length. Lengths either side of a chunk boundary are the
+    cases that used to fail.
+    """
+    for length in (100, 180, 181, 250, 300, 437, 500):
+        chunks = chunk_text(words(length), chunk_size=100, overlap=20)
+        for i, chunk in enumerate(chunks):
+            for j, other in enumerate(chunks):
+                if i != j:
+                    assert chunk not in other, (
+                        f"at {length} words, chunk {i} is contained in chunk {j}"
+                    )
+
+
+def test_a_long_tail_still_produces_a_final_chunk():
+    """The fix must not truncate: a tail with new words still gets a chunk."""
     chunks = chunk_text(words(300), chunk_size=100, overlap=20)
 
-    assert chunks[-1] not in chunks[-2]
+    assert chunks[-1].split()[-1] == "w299"
 
 
 @pytest.mark.parametrize("text", ["", "   ", "\n\n\t  \n"])
