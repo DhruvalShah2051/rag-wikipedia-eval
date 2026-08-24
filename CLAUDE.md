@@ -121,7 +121,25 @@ Things later phases need to know:
   `tests/test_chunking.py`. Fixing it changes the 416-chunk corpus and every measurement
   over it, so fix it during the Phase 2 chunking sweep, which re-measures anyway.
 
-### Phase 2 — MLflow experiment tracking (Windows) — DONE
+### Phase 2 — MLflow experiment tracking (Windows) — IN PROGRESS (2 runs left)
+
+**Start here when resuming.** All code is written, committed, and tested; only two
+measurements remain, both blocked on the Groq daily token cap. In order:
+
+```bash
+python 6_sweep.py     # resumes; runs only chunk_size=500, top_k=8  (~59k tokens)
+                      # then the v2 refusal baseline                (~25k tokens)
+```
+
+Then publish both results in the README, update the progress log below, and Phase 2 is done.
+
+**The quota is a rolling 24-hour window, not a midnight reset.** Measured directly: two
+failures ~3 minutes apart reported 198,428 then 197,986 tokens used, so spend ages out
+gradually rather than clearing at a calendar boundary. Most of a burst returns roughly 24
+hours after that burst. Groq's "try again in 26m" is when the next *single request* fits, not
+when the daily budget returns — do not read it as a reset time. A 429 itself costs no tokens,
+so retrying to probe is free.
+
 Goal: back "MLflow", "experiment tracking", "model registry".
 - Instrument the evaluation harness so each run logs to MLflow
 - Parameters: chunk size, chunk overlap, top-k, embedding model, judge prompt version
@@ -144,9 +162,23 @@ Things later phases need to know:
 - Latency is logged but is **not** trustworthy as a configuration property: Groq queues
   server-side as an account nears its quota. Do not put it in a comparison table without
   controlling for that.
-- Every accuracy metric currently saturates at 100% on the 10-question benchmark, so the
-  suite can no longer distinguish configurations. A harder or larger benchmark is the
-  natural next improvement if tuning results are ever needed.
+- The hit-rate retrieval metric (`expected_source in retrieved_sources`) saturates at 100%
+  and cannot do otherwise: it carries one bit, and every benchmark question's correct
+  article lands at rank 1 or 2. `retrieval_mrr` is the metric with resolution — it showed a
+  chunk-size difference the hit rate had discarded (0.850 at chunk 500 vs 0.800 at 250).
+  Both are logged; do not drop the hit rate, it is what every earlier run recorded.
+- MRR being flat across `top_k` is correct, not a bug. `top_k` is a cutoff, not a ranking, so
+  it cannot change where an article ranks. The real `top_k` finding is cost: 935 tokens at
+  top-2 against 2955 at top-8, for identical accuracy.
+- n=10 is too small to resolve much: the 95% confidence interval on 10/10 runs from about
+  72% to 100%, and the MRR gap above is one question changing rank. Treat single-question
+  differences as noise. A larger suite is the fix if tuning results are ever needed.
+- Benchmark suites are versioned and logged as `benchmark_version`. **v1 is frozen** — all
+  six sweep cells are measured on it, so adding a question silently invalidates the
+  comparison between them. `6_sweep.py` pins v1 explicitly rather than trusting the default.
+- v2 adds five unanswerable questions covering the refusal path, which nothing tested before.
+  Refusals are scored separately from answer accuracy and excluded from the retrieval
+  denominator; folding them together would produce a number meaning neither.
 
 ### Phase 3 — Kubernetes deployment (WSL2 from here on) — TODO
 Goal: back "Kubernetes", "container orchestration".
