@@ -21,14 +21,24 @@ generating with `openai/gpt-oss-20b` and grading with `openai/gpt-oss-120b`:
 
 | Metric | Score |
 |---|---|
-| Retrieval accuracy | 10/10 (100%) |
+| Retrieval hit rate | 10/10 (100%) |
+| Retrieval MRR | 0.800 |
 | Answer accuracy (LLM-graded) | 10/10 (100%) |
-| Mean latency | 5.6s per query |
+| Refusal accuracy (benchmark v2) | 5/5 (100%) |
 | Mean tokens | 1629 per query |
 
-Retrieval was previously recorded as 9/10. That number was real but it was not
-measuring retrieval — it was measuring the recall of a misconfigured vector
-index. See step 7 below; it is the most useful thing this project has found.
+Two notes on reading these, both of which the project learned the hard way:
+
+- Retrieval was previously recorded as **9/10**. That number was real but it was
+  not measuring retrieval — it was measuring the recall of a misconfigured vector
+  index. See step 7 below.
+- The **hit rate saturates by construction** and cannot report anything but 100%
+  on this benchmark. **MRR** is the metric with resolution, and it is the one that
+  distinguishes configurations. See the sweep results.
+
+Latency is measured and logged, but is deliberately not quoted as a headline
+number: Groq queues server-side as an account approaches its quota, so it varies
+with throttling rather than with the pipeline.
 
 **How these numbers were reached (not just reported):**
 
@@ -245,25 +255,67 @@ by question rather than only seen as a lower aggregate.
 
 `6_sweep.py` evaluates a grid of chunk sizes and retrieval depths. Measured:
 
-| chunk_size | top_k | chunks | retrieval | answer | tokens/query |
-|---:|---:|---:|---:|---:|---:|
-| 250 | 2 | 414 | 100% | 100% | 935 |
-| 250 | 4 | 414 | 100% | 100% | 1622 |
-| 250 | 8 | 414 | 100% | 100% | 2955 |
-| 500 | 2 | 209 | 100% | 100% | 1607 |
-| 500 | 4 | 209 | 100% | 100% | 2930 |
-| 500 | 8 | 209 | *not run* | | |
+| chunk_size | top_k | chunks | hit-rate | MRR | answer | tokens/query |
+|---:|---:|---:|---:|---:|---:|---:|
+| 250 | 2 | 414 | 100% | 0.800 | 100% | **935** |
+| 250 | 4 | 414 | 100% | 0.800 | 100% | 1622 |
+| 250 | 8 | 414 | 100% | 0.800 | 100% | 2955 |
+| 500 | 2 | 209 | 100% | **0.850** | 100% | 1607 |
+| 500 | 4 | 209 | 100% | **0.850** | 100% | 2930 |
+| 500 | 8 | 209 | 100% | **0.850** | 100% | 5532 |
 
-**What this says.** Accuracy is saturated: every configuration scores 100% on
-both metrics, so on this benchmark neither chunk size nor retrieval depth
-distinguishes them. Cost is not saturated — tokens per query scale roughly
-linearly with retrieved context, and `chunk_size=250, top_k=2` answers every
-question correctly on **935 tokens**, less than a third of what `top_k=8` spends.
+**What this says.** The hit rate is saturated and *cannot* be otherwise. It is a
+membership test — did the right article appear anywhere in top-k — so rank 1 and
+rank 8 score identically. Since every question's correct article lands at rank 1
+or 2, any `top_k >= 2` is guaranteed to score 100%.
 
-That makes the default `TOP_K = 4` defensible but not optimal for this corpus:
-top-2 is measurably cheaper at identical accuracy. The honest caveat is that a
-10-question benchmark saturating at 100% cannot distinguish configurations, so
-this argues for a harder benchmark before treating it as a tuning result.
+**MRR is the metric with resolution**, and it shows a difference the hit rate
+discarded: `chunk_size=500` ranks the correct article first on 7 of 10 questions
+against 6 of 10 for `chunk_size=250` (0.850 vs 0.800). The sweep had contained
+that signal all along; the scoring threw it away.
+
+Two things worth reading carefully:
+
+- **MRR being flat across `top_k` is correct, not a metric failure.** `top_k` is a
+  cutoff, not a ranking — it cannot change *where* an article ranks, only whether
+  it makes the cut. The real `top_k` finding is cost.
+- **0.850 vs 0.800 is one question moving from rank 2 to rank 1.** At n=10 that is
+  noise, not a result. It is a hint that would need a larger suite to confirm.
+
+On cost, the picture is unambiguous: `chunk_size=250, top_k=2` answers every
+question correctly on **935 tokens**, against 5532 for `chunk_size=500, top_k=8`
+— a 5.9× spread for identical accuracy. That makes the default `TOP_K = 4`
+defensible but not optimal for this corpus.
+
+### The refusal path
+
+The generation prompt instructs the model to decline when the retrieved context
+does not contain the answer. Benchmark **v2** adds five questions with no answer
+anywhere in an ML/AI corpus — a capital city, a novel's author, a boiling point,
+a baking time, a football result — each deliberately answerable from ordinary
+pretraining, so a model ignoring its context produces a confident
+wrong-behaviour answer rather than getting stuck.
+
+| Metric | v2 baseline (`chunk_size=250`, `top_k=4`) |
+|---|---|
+| Retrieval hit rate | 10/10 (100%) |
+| Retrieval MRR | 0.800 |
+| Answer accuracy | 10/10 (100%) |
+| **Refusal accuracy** | **5/5 (100%)** |
+
+All five were declined with the exact canonical wording, so all five were graded
+by string match and **cost zero judge calls** — the judge is spent only when the
+model paraphrases.
+
+Refusals are scored separately from answer accuracy, and unanswerable questions
+are excluded from the retrieval denominator entirely: they have no correct
+source, so counting them as misses would understate retrieval and counting them
+as hits would inflate it. Folding "declined correctly" into the same figure as
+"answered correctly" would produce a number meaning neither.
+
+Benchmark suites are versioned and logged as `benchmark_version`. **v1 is frozen**
+at ten questions because all six sweep configurations are measured on it — adding
+a question would silently invalidate the comparison between them.
 
 **Latency is deliberately omitted from this table.** It is logged as a metric,
 but Groq queues requests server-side as an account approaches its quota, and the
@@ -272,10 +324,10 @@ later ones averaged 9–20s at similar token counts. That measures how throttled
 the account was, not how the configuration performs, and presenting it as a
 property of the configuration would repeat exactly the mistake in step 7 above.
 
-The `500 / 8` cell is unrun: the sweep exhausted the Groq free tier's daily
-token cap (200,000 TPD) partway through. Re-running `6_sweep.py` after the quota
-resets completes only the missing cell — the sweep skips configurations already
-logged in MLflow.
+The sweep is resumable: it skips configurations already logged in MLflow. That
+was not a nicety — the first full run exhausted the Groq free tier's daily token
+cap (200,000 TPD) after five of six cells, and the sixth was completed a day
+later by re-running the same command, which executed only the missing cell.
 
 ### Model registry
 

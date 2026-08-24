@@ -15,18 +15,20 @@ GitHub Repository: https://github.com/DhruvalShah2051/rag-wikipedia-eval
 
 ## Existing system (already built and working)
 
-- **Ingestion:** 15 Wikipedia AI/ML articles, chunked into 416 chunks
+- **Ingestion:** 15 Wikipedia AI/ML articles, chunked into 414 chunks
 - **Embeddings:** `all-MiniLM-L6-v2` via sentence-transformers, 384 dimensions
 - **Vector store:** PostgreSQL with the pgvector extension
 - **Generation:** Groq API, `openai/gpt-oss-20b`
-- **Evaluation harness:** LLM-as-judge with an explicit rule-based grading rubric over a
-  10-question benchmark suite, graded by a separate larger model (`openai/gpt-oss-120b`)
-  so the generator is not grading its own output
+- **Evaluation harness:** LLM-as-judge with an explicit rule-based grading rubric, graded by
+  a separate larger model (`openai/gpt-oss-120b`) so the generator is not grading its own
+  output. Two versioned suites: v1 (10 answerable questions, frozen) and v2 (v1 plus 5
+  unanswerable questions covering the refusal path)
 - **Measured results:** 100% retrieval accuracy at top-4 over a 414-chunk corpus; 100%
   answer accuracy, improved from 50% across iterative evaluation cycles (keyword matching,
   then a loose LLM judge, then a strict rubric, then a generation-prompt fix)
-- **Testing:** 54 pytest tests over chunking, the grading rubric, and retrieval, split into
-  unit tests (no database or API key) and integration tests against real pgvector
+- **Testing:** 163 pytest tests over chunking, the grading rubric, retrieval, index sizing,
+  the harness arithmetic, and MLflow payloads, split into unit tests (no database, API key,
+  or tracking server) and integration tests against real pgvector
 - **CI:** GitHub Actions runs both tiers on every push and PR and builds the container image;
   GHCR push happens only from `main`
 
@@ -121,25 +123,7 @@ Things later phases need to know:
   `tests/test_chunking.py`. Fixing it changes the 416-chunk corpus and every measurement
   over it, so fix it during the Phase 2 chunking sweep, which re-measures anyway.
 
-### Phase 2 — MLflow experiment tracking (Windows) — IN PROGRESS (2 runs left)
-
-**Start here when resuming.** All code is written, committed, and tested; only two
-measurements remain, both blocked on the Groq daily token cap. In order:
-
-```bash
-python 6_sweep.py     # resumes; runs only chunk_size=500, top_k=8  (~59k tokens)
-                      # then the v2 refusal baseline                (~25k tokens)
-```
-
-Then publish both results in the README, update the progress log below, and Phase 2 is done.
-
-**The quota is a rolling 24-hour window, not a midnight reset.** Measured directly: two
-failures ~3 minutes apart reported 198,428 then 197,986 tokens used, so spend ages out
-gradually rather than clearing at a calendar boundary. Most of a burst returns roughly 24
-hours after that burst. Groq's "try again in 26m" is when the next *single request* fits, not
-when the daily budget returns — do not read it as a reset time. A 429 itself costs no tokens,
-so retrying to probe is free.
-
+### Phase 2 — MLflow experiment tracking (Windows) — DONE
 Goal: back "MLflow", "experiment tracking", "model registry".
 - Instrument the evaluation harness so each run logs to MLflow
 - Parameters: chunk size, chunk overlap, top-k, embedding model, judge prompt version
@@ -153,9 +137,15 @@ Things later phases need to know:
 - The registered pyfunc model is **not self-contained**. Embeddings live in Postgres, so a
   loaded version needs a reachable pgvector instance with a corpus ingested at that
   version's chunk size. Phase 3's service must not assume the artifact is portable.
-- `6_sweep.py` is resumable: it skips configurations already logged in MLflow. One cell
-  (chunk_size=500, top_k=8) is still unrun — the Groq free tier's 200,000 token/day cap was
-  exhausted. Re-running after a reset completes only that cell.
+- `6_sweep.py` is resumable: it skips configurations already logged in MLflow. All six cells
+  are now measured. The resumability was load-bearing, not a nicety — the first full run hit
+  the Groq daily cap after five cells and the sixth was finished a day later by re-running
+  the same command.
+- **The Groq daily cap is a rolling 24-hour window, not a midnight reset.** Measured: two
+  failures ~3 minutes apart reported 198,428 then 197,986 tokens used, so spend ages out
+  gradually. Most of a burst returns roughly 24 hours after that burst. Groq's "try again in
+  26m" is when the next *single request* fits, not when the daily budget returns. A 429
+  itself costs no tokens, so probing is free.
 - Groq free-tier limits are a real constraint on any phase that runs the benchmark in bulk.
   `llm.DailyQuotaExceeded` distinguishes a daily cap from a per-minute limit; do not retry
   the former. Phase 4's Airflow DAG will hit this if it evaluates on a schedule.
@@ -217,9 +207,14 @@ Update this as phases complete. Keep entries to one or two lines.
 
 - **Phase 1 — 2026-08-23.** 54 pytest tests (unit + pgvector integration), GitHub Actions CI
   with three jobs, and a container image published to GHCR from `main`.
-- **Phase 2 — 2026-08-23.** MLflow tracking on SQLite (9 params, 6 metrics, results file as
-  artifact), pipeline registered as a versioned pyfunc model, 5 of 6 sweep configurations
-  measured. 115 unit tests.
+- **Phase 2 — 2026-08-24.** MLflow tracking on SQLite (10 params, 8 metrics, results file as
+  artifact), pipeline registered as a versioned pyfunc model, all 6 sweep configurations
+  measured across 2 chunk sizes x 3 retrieval depths. 163 tests.
+- **Phase 2, metric resolution.** The hit-rate retrieval metric saturates at 100% by
+  construction. Added `retrieval_mrr`, which recovered a chunk-size signal the hit rate had
+  discarded (0.850 at chunk 500 vs 0.800 at 250), and backfilled it onto already-logged runs
+  from their artifacts at no API cost. Added benchmark v2 with five unanswerable questions:
+  the refusal path had never been tested, and measures 5/5.
 - **Phase 2, unplanned and important.** The recorded 90% retrieval accuracy was measuring
   ivfflat recall, not retrieval. A hardcoded `lists = 10` over ~414 chunks with the default
   `probes = 1` scanned a tenth of the corpus; re-ingesting left centroids describing
