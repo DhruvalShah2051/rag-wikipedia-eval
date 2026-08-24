@@ -20,7 +20,7 @@ import mlflow
 
 from config import CHUNK_OVERLAP_WORDS, CHUNK_SIZE_WORDS, MLFLOW_EXPERIMENT_NAME
 from console import enable_utf8_output
-from evaluation import run_evaluation
+from evaluation import BENCHMARK_V1, BENCHMARK_V1_NAME, run_evaluation
 from experiment import configure_tracking, log_evaluation_run
 from ingest import ingest_corpus
 from llm import DailyQuotaExceeded
@@ -83,7 +83,17 @@ def sweep(resume=True):
 
             for top_k in pending:
                 print(f"\n--- chunk_size={chunk_size}, top_k={top_k} ---")
-                result = run_evaluation(top_k=top_k, verbose=False)
+                # Pinned to v1 explicitly rather than relying on the default.
+                # If the default ever moves to a larger suite, relying on it
+                # would score this cell on a different set of questions from the
+                # other five - producing a comparison table that looks correct
+                # and is not.
+                result = run_evaluation(
+                    top_k=top_k,
+                    test_cases=BENCHMARK_V1,
+                    benchmark_version=BENCHMARK_V1_NAME,
+                    verbose=False,
+                )
 
                 run_id = log_evaluation_run(
                     result,
@@ -105,6 +115,7 @@ def sweep(resume=True):
                     "top_k": top_k,
                     "chunks": chunk_count,
                     "retrieval": result.retrieval_accuracy,
+                    "mrr": result.mean_reciprocal_rank,
                     "answer": result.answer_accuracy,
                     "latency": result.mean_latency_s,
                     "tokens": result.mean_tokens_per_query,
@@ -112,6 +123,7 @@ def sweep(resume=True):
                 })
 
                 print(f"retrieval {result.retrieval_accuracy:.0%} | "
+                      f"MRR {result.mean_reciprocal_rank:.3f} | "
                       f"answer {result.answer_accuracy:.0%} | "
                       f"{result.mean_latency_s:.2f}s | "
                       f"{result.mean_tokens_per_query:.0f} tokens")
@@ -147,14 +159,18 @@ def print_table(rows):
     print(f"\n{'=' * 78}")
     print("SWEEP RESULTS")
     print("=" * 78)
-    header = f"{'chunk':>6} {'top_k':>6} {'chunks':>7} {'retrieval':>10} {'answer':>8} {'latency':>9} {'tokens':>8}"
+    header = (f"{'chunk':>6} {'top_k':>6} {'chunks':>7} {'hit-rate':>9} "
+              f"{'MRR':>7} {'answer':>8} {'tokens':>8}")
     print(header)
     print("-" * 78)
     for r in rows:
         print(f"{r['chunk_size']:>6} {r['top_k']:>6} {r['chunks']:>7} "
-              f"{r['retrieval']:>9.0%} {r['answer']:>8.0%} "
-              f"{r['latency']:>8.2f}s {r['tokens']:>8.0f}")
+              f"{r['retrieval']:>8.0%} {r['mrr']:>7.3f} {r['answer']:>8.0%} "
+              f"{r['tokens']:>8.0f}")
     print("=" * 78)
+    # Latency is logged as a metric but kept out of this table: Groq queues
+    # server-side as an account nears its quota, so it measures throttling
+    # rather than the configuration.
     print("\nCompare in the UI: mlflow ui --backend-store-uri sqlite:///mlflow.db")
 
 

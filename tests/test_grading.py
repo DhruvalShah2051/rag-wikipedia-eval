@@ -9,7 +9,15 @@ accuracy number, which is exactly the failure mode these tests exist to catch.
 import pytest
 
 from conftest import FakeGroqClient
-from grading import build_grading_prompt, grade_answer_with_llm, parse_verdict
+from config import REFUSAL_MARKER
+from grading import (
+    build_grading_prompt,
+    build_refusal_prompt,
+    grade_answer_with_llm,
+    grade_refusal,
+    is_refusal,
+    parse_verdict,
+)
 
 
 # --------------------------------------------------------------------------
@@ -182,3 +190,133 @@ def test_grade_answer_sends_the_rubric_prompt():
 
     sent = client.calls[0]["messages"][0]["content"]
     assert sent == build_grading_prompt("What is overfitting?", "ref text", "ans text")
+
+
+# --------------------------------------------------------------------------
+# Refusal detection and grading
+# --------------------------------------------------------------------------
+
+
+def test_canonical_refusal_is_recognised():
+    assert is_refusal(REFUSAL_MARKER) is True
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "I don't have enough information to answer that.",
+        "I don\u2019t have enough information to answer that.",   # curly apostrophe
+        "  i don't have enough information to answer that  ",     # case and whitespace
+        "**I don't have enough information to answer that.**",    # bolded
+        "I don't have enough information to answer that. The context covers ML topics.",
+    ],
+)
+def test_canonical_refusal_survives_formatting_noise(reply):
+    """
+    The model reproduces the requested wording but rarely byte-for-byte. A
+    literal equality check would spend a judge call on every one of these.
+    """
+    assert is_refusal(reply) is True
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "The capital of Australia is Canberra.",
+        "Backpropagation computes gradients using the chain rule.",
+        "",
+    ],
+)
+def test_substantive_answers_are_not_refusals(reply):
+    assert is_refusal(reply) is False
+
+
+def test_canonical_refusal_costs_no_judge_call():
+    """
+    The cost argument for this design: when the model complies, grading a
+    refusal is free. A judge call is spent only on paraphrases.
+    """
+    client = FakeGroqClient("VERDICT: DECLINED")
+
+    result = grade_refusal("What is the capital of Australia?", REFUSAL_MARKER, client=client)
+
+    assert result["correct"] is True
+    assert result["parsed"] is True
+    assert client.calls == [], "a canonical refusal must not reach the judge"
+
+
+def test_paraphrased_refusal_falls_back_to_the_judge():
+    client = FakeGroqClient("VERDICT: DECLINED\nREASONING: it declined, reworded.")
+
+    result = grade_refusal(
+        "What is the capital of Australia?",
+        "The provided context does not cover geography, so I cannot answer.",
+        client=client,
+    )
+
+    assert result["correct"] is True
+    assert len(client.calls) == 1
+
+
+def test_judge_says_answered_when_the_model_did_not_decline():
+    client = FakeGroqClient("VERDICT: ANSWERED\nREASONING: gave a substantive answer.")
+
+    result = grade_refusal(
+        "What is the capital of Australia?",
+        "The capital of Australia is Canberra.",
+        client=client,
+    )
+
+    assert result["correct"] is False
+    assert result["parsed"] is True
+
+
+def test_answered_is_not_read_as_declined():
+    """DECLINED and ANSWERED share no substring, but pin the alternation anyway."""
+    client = FakeGroqClient("VERDICT: [ANSWERED]")
+    assert grade_refusal("q", "some answer", client=client)["correct"] is False
+
+
+def test_unreadable_refusal_verdict_is_flagged():
+    client = FakeGroqClient("I am not sure what you are asking me to do.")
+
+    result = grade_refusal("q", "some answer", client=client)
+
+    assert result["correct"] is False
+    assert result["parsed"] is False
+
+
+def test_refusal_rubric_judges_declining_not_correctness():
+    """
+    Rule 2 is the load-bearing one. A confidently correct answer drawn from
+    pretraining is precisely the failure being measured, so the judge must not
+    reward it for being factually right.
+    """
+    prompt = build_refusal_prompt("What is the capital of Australia?", "Canberra.")
+
+    assert "DECLINED" in prompt
+    assert "ANSWERED" in prompt
+    assert "even if" in prompt and "factually correct" in prompt
+    assert "Correctness is not what is being judged here." in prompt
+
+
+def test_refusal_grading_returns_the_same_shape_as_answer_grading():
+    """One result contract, so the harness does not branch on question type."""
+    client = FakeGroqClient("VERDICT: CORRECT\nREASONING: fine.")
+    answer_keys = set(grade_answer_with_llm("q", "ref", "ans", client=client))
+
+    canonical = set(grade_refusal("q", REFUSAL_MARKER))
+    judged = set(grade_refusal("q", "a paraphrase", client=FakeGroqClient("VERDICT: DECLINED")))
+
+    assert canonical == answer_keys
+    assert judged == answer_keys
+
+
+def test_refusal_marker_matches_the_generation_prompt():
+    """
+    The two must never drift. If the prompt asks for one string and the grader
+    checks another, every refusal would be scored as a failure.
+    """
+    from rag_pipeline import build_prompt
+
+    assert REFUSAL_MARKER in build_prompt("q", [])

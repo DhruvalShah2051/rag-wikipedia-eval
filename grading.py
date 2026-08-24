@@ -13,7 +13,7 @@ so treat it as a fixed artifact and re-run the harness if it is ever edited.
 import re
 
 from groq import Groq
-from config import GROQ_API_KEY, JUDGE_MODEL
+from config import GROQ_API_KEY, JUDGE_MODEL, REFUSAL_MARKER
 from llm import chat_completion
 
 # Bumped whenever the rubric text below changes. Logged to MLflow as a run
@@ -112,6 +112,109 @@ def parse_verdict(result_text):
         "correct": verdict_match.group(1).upper() == "CORRECT",
         "reasoning": reasoning,
         "parsed": True,
+    }
+
+
+def is_refusal(answer):
+    """
+    Whether an answer is the canonical refusal.
+
+    Compared on a normalised form - case, whitespace, surrounding punctuation and
+    apostrophe style all vary between replies without changing the behaviour. The
+    marker is imported from config, the same constant rag_pipeline builds into
+    the prompt, so editing the prompt cannot leave this checking for a string the
+    model is no longer being asked to produce.
+    """
+    if not answer:
+        return False
+
+    def normalise(text):
+        text = text.replace("’", "'").replace("‘", "'")
+        return " ".join(text.lower().split()).strip(" .\"'*")
+
+    return normalise(REFUSAL_MARKER) in normalise(answer)
+
+
+def build_refusal_prompt(query, model_answer):
+    """
+    Rubric for adjudicating a reply that did not use the canonical wording.
+
+    Deliberately narrow: the only question is whether the model declined. Whether
+    a volunteered answer happens to be factually right is irrelevant and actively
+    misleading here - answering correctly from pretraining, when the context does
+    not support it, is the failure being measured.
+    """
+    return f"""You are checking whether an AI system DECLINED to answer a question.
+
+The system was instructed to answer only from provided context, and to say it does not have
+enough information when the context does not contain the answer.
+
+QUESTION: {query}
+
+SYSTEM'S REPLY:
+{model_answer}
+
+Decide only whether the reply declines to answer. Apply these rules:
+1. A reply that says it lacks the information, cannot answer from the context, or that the
+   context does not cover the question, counts as DECLINED - however it is worded.
+2. A reply that provides a substantive answer to the question counts as ANSWERED, even if
+   that answer is factually correct. Correctness is not what is being judged here.
+3. A reply that answers and then adds a caveat about the context still counts as ANSWERED.
+4. If the reply is ambiguous, choose ANSWERED.
+
+Respond in this exact format:
+VERDICT: [DECLINED or ANSWERED]
+REASONING: [one sentence]"""
+
+
+_REFUSAL_VERDICT_RE = re.compile(
+    r"^[\s*_#]*VERDICT[\s*_]*:[\s*_\[\(]*(DECLINED|ANSWERED)\b",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def grade_refusal(query, model_answer, client=None):
+    """
+    Did the model decline to answer a question its corpus cannot support?
+
+    The canonical string is checked first, which costs nothing and settles the
+    common case deterministically. A judge call is spent only when the model
+    paraphrased, so a full refusal suite usually costs no grading calls at all.
+
+    Returns the same dict shape as grade_answer_with_llm, so the harness has one
+    result contract regardless of which kind of question it scored.
+    """
+    if is_refusal(model_answer):
+        return {
+            "correct": True,
+            "reasoning": "Declined using the canonical refusal wording.",
+            "parsed": True,
+            "raw_verdict": "",
+        }
+
+    response, _latency_s = chat_completion(
+        client or _get_judge_client(),
+        model=JUDGE_MODEL,
+        prompt=build_refusal_prompt(query, model_answer),
+        temperature=0.0,
+    )
+    result_text = response.choices[0].message.content.strip()
+
+    match = _REFUSAL_VERDICT_RE.search(result_text)
+    reasoning_match = _REASONING_RE.search(result_text)
+    reasoning = reasoning_match.group(1).strip() if reasoning_match else ""
+
+    if match is None:
+        # Unreadable verdict scores as ANSWERED, matching rule 4 of the rubric,
+        # but `parsed` lets the harness tell that apart from a real judgement.
+        return {"correct": False, "reasoning": reasoning, "parsed": False,
+                "raw_verdict": result_text}
+
+    return {
+        "correct": match.group(1).upper() == "DECLINED",
+        "reasoning": reasoning,
+        "parsed": True,
+        "raw_verdict": result_text,
     }
 
 

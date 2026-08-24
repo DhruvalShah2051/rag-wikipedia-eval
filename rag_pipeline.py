@@ -18,6 +18,7 @@ from config import (
     GROQ_API_KEY,
     GROQ_MODEL,
     IVFFLAT_PROBES,
+    REFUSAL_MARKER,
     TOP_K,
 )
 from llm import chat_completion
@@ -108,7 +109,7 @@ def build_prompt(query, retrieved_chunks):
     )
 
     prompt = f"""You are a helpful assistant answering questions using ONLY the context provided below.
-If the answer is not contained in the context, say "I don't have enough information to answer that."
+If the answer is not contained in the context, say "{REFUSAL_MARKER}"
 Do not use outside knowledge.
 
 Answer in 1-2 complete sentences. Do not respond with just a category name, label, or single term -

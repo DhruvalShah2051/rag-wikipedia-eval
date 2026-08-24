@@ -54,6 +54,13 @@ IVFFLAT_PROBES = 1
 # and was later decommissioned by Groq. See the Results section of the README.
 GROQ_MODEL = "openai/gpt-oss-20b"
 
+# The exact wording the generation prompt asks for when the retrieved context
+# does not contain the answer. Lives here because two modules depend on it
+# staying identical: rag_pipeline builds it into the prompt, and grading checks
+# replies against it. Written out in both places, an edit to one would leave the
+# other silently checking for a string the model is no longer asked to produce.
+REFUSAL_MARKER = "I don't have enough information to answer that."
+
 # --- Grading ---
 # The judge is deliberately a different, larger model than the generator. A model
 # grading its own output has a self-preference bias, and the harness is only
